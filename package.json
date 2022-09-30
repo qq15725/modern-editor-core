@@ -1,5 +1,5 @@
 {
-  "name": "editor-core",
+  "name": "modern-editor-core",
   "type": "module",
   "version": "0.0.1",
   "packageManager": "pnpm@7.9.0",
