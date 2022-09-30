@@ -1,18 +1,18 @@
 {
-  "name": "pkg-name",
+  "name": "editor-core",
   "type": "module",
   "version": "0.0.0",
   "packageManager": "pnpm@7.9.0",
   "description": "",
   "author": "wxm",
   "license": "MIT",
-  "homepage": "https://github.com/qq15725/pkg-name",
+  "homepage": "https://github.com/qq15725/editor-core",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/qq15725/pkg-name.git"
+    "url": "git+https://github.com/qq15725/editor-core.git"
   },
   "bugs": {
-    "url": "https://github.com/qq15725/pkg-name/issues"
+    "url": "https://github.com/qq15725/editor-core/issues"
   },
   "keywords": [],
   "sideEffects": false,
