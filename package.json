@@ -6,13 +6,13 @@
   "description": "",
   "author": "wxm",
   "license": "MIT",
-  "homepage": "https://github.com/qq15725/editor-core",
+  "homepage": "https://github.com/qq15725/modern-editor-core",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/qq15725/editor-core.git"
+    "url": "git+https://github.com/qq15725/modern-editor-core.git"
   },
   "bugs": {
-    "url": "https://github.com/qq15725/editor-core/issues"
+    "url": "https://github.com/qq15725/modern-editor-core/issues"
   },
   "keywords": [],
   "sideEffects": false,
