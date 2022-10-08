@@ -200,13 +200,13 @@ export function useEditorApply(): EditorApply {
           if (!newProperties) {
             selection = undefined
           } else {
-            if (selection == null) {
+            if (!selection) {
               if (!this.isRange(newProperties)) throw new Error(`Cannot apply an incomplete "set_selection" operation properties ${ JSON.stringify(newProperties) } when there is no current selection.`)
               selection = { ...newProperties }
             }
             for (const key in newProperties) {
               const value = newProperties[key as keyof typeof newProperties]
-              if (value == null) {
+              if (!value) {
                 if (key === 'anchor' || key === 'focus') throw new Error(`Cannot remove the "${ key }" selection property`)
                 delete selection[key as keyof typeof selection]
               } else {

@@ -35,11 +35,21 @@ export function useEditorSelection(): EditorSelection {
       if (this.selection && range) {
         this.setSelection(range)
       } else {
-        this.selection = range
+        this.apply({
+          type: 'set_selection',
+          properties: this.selection,
+          newProperties: range,
+        })
       }
     },
     deselect() {
-      this.selection = undefined
+      if (this.selection) {
+        this.apply({
+          type: 'set_selection',
+          properties: this.selection,
+          newProperties: undefined,
+        })
+      }
     },
     move(options = {}) {
       if (!this.selection) return

@@ -9,15 +9,15 @@ export function useEditorPoint(): EditorPoint {
         && typeof value.offset === 'number'
         && this.isPath(value.path)
     },
-    isAfterPoint(point, another) {
-      return this.comparePoint(point, another) === 1
+    isStartPoint(point, at) {
+      if (point.offset !== 0) return false
+      return this.equalsPoint(point, this.getStartPoint(at))
     },
     isBeforePoint(point, another) {
       return this.comparePoint(point, another) === -1
     },
-    isStartPoint(point, at) {
-      if (point.offset !== 0) return false
-      return this.equalsPoint(point, this.getStartPoint(at))
+    isAfterPoint(point, another) {
+      return this.comparePoint(point, another) === 1
     },
     isEndPoint(point, at) {
       return this.equalsPoint(point, this.getEndPoint(at))
@@ -132,11 +132,8 @@ export function useEditorPoint(): EditorPoint {
       }
       return at
     },
-    getStartPoint(at) {
+    getStartPoint(at = []) {
       return this.getPoint(at, { edge: 'start' })
-    },
-    getEndPoint(at) {
-      return this.getPoint(at, { edge: 'end' })
     },
     getBeforePoint(at, options = {}) {
       const anchor = this.getStartPoint([])
@@ -165,6 +162,9 @@ export function useEditorPoint(): EditorPoint {
         d++
       }
       return target
+    },
+    getEndPoint(at = []) {
+      return this.getPoint(at, { edge: 'end' })
     },
     getPointRef(point, options = {}) {
       const { affinity = 'forward' } = options

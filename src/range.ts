@@ -15,11 +15,11 @@ export function useEditorRange(): EditorRange {
     isExpandedRange(range) {
       return !this.isCollapsedRange(range)
     },
-    isBackwardRange({ anchor, focus }) {
-      return this.isAfterPoint(anchor, focus)
-    },
     isForwardRange(range) {
       return !this.isBackwardRange(range)
+    },
+    isBackwardRange({ anchor, focus }) {
+      return this.isAfterPoint(anchor, focus)
     },
     getRange(at, to) {
       if (this.isRange(at) && !to) return at
@@ -39,11 +39,11 @@ export function useEditorRange(): EditorRange {
         ? [anchor, focus]
         : [focus, anchor]
     },
-    getRangeEndPoint(range) {
-      return this.getRangeEdges(range)[1]
-    },
     getRangeStartPoint(range) {
       return this.getRangeEdges(range)[0]
+    },
+    getRangeEndPoint(range) {
+      return this.getRangeEdges(range)[1]
     },
     getUnhangRange(range, options = {}) {
       const { voids = false } = options

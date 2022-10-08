@@ -133,7 +133,7 @@ export type SetNodeOperation = ExtendedType<'SetNodeOperation', BaseSetNodeOpera
 export type BaseSetSelectionOperation =
   | {
     type: 'set_selection'
-    properties: null
+    properties: undefined
     newProperties: Range
   }
   | {
@@ -144,7 +144,7 @@ export type BaseSetSelectionOperation =
   | {
     type: 'set_selection'
     properties: Range
-    newProperties: null
+    newProperties: undefined
   }
 export type SetSelectionOperation = ExtendedType<'SetSelectionOperation', BaseSetSelectionOperation>
 export type BaseSplitNodeOperation = {
@@ -218,8 +218,7 @@ export interface EditorPoint {
     voids?: boolean
   }): Generator<Point, void, undefined>
   getPoint(this: EditorCore, at: Location, options?: { edge?: 'start' | 'end' }): Point
-  getStartPoint(this: EditorCore, at: Location): Point
-  getEndPoint(this: EditorCore, at: Location): Point
+  getStartPoint(this: EditorCore, at?: Location): Point
   getBeforePoint(this: EditorCore, at: Location, options?: {
     distance?: number
     unit?: 'character' | 'word' | 'line' | 'block' | 'offset'
@@ -230,6 +229,7 @@ export interface EditorPoint {
     unit?: 'character' | 'word' | 'line' | 'block' | 'offset'
     voids?: boolean
   }): Point | undefined
+  getEndPoint(this: EditorCore, at?: Location): Point
   getPointRef(this: EditorCore, point: Point, options?: {
     affinity?: 'forward' | 'backward' | null
   }): PointRef
@@ -467,7 +467,6 @@ export interface EditorCore extends
   __editor__: true
   selection: Range | undefined
   children: Node[]
-  isSpan(this: EditorCore, value: any): value is Span
   isEditor(this: EditorCore, value: any): value is EditorCore
   isBlock(this: EditorCore, value: Element): boolean
   isInline(this: EditorCore, value: Element): boolean
