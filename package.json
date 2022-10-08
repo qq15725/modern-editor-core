@@ -3,7 +3,7 @@
   "type": "module",
   "version": "0.0.1",
   "packageManager": "pnpm@7.9.0",
-  "description": "",
+  "description": "A modern rich text editor core",
   "author": "wxm",
   "license": "MIT",
   "homepage": "https://github.com/qq15725/modern-editor-core",
