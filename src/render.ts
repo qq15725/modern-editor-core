@@ -76,6 +76,8 @@ export function render(
     }
   }
 
+  const isEmpty = !hasSelection && editor.getNodeTextContent(editor) === ''
+
   return createElement(
     'div',
     {
@@ -89,6 +91,7 @@ export function render(
         outline: 'none',
         whiteSpace: 'pre-wrap',
         wordWrap: 'break-word',
+        color: isEmpty ? 'grey' : undefined,
         ...styles,
       },
       'onBeforeinput': (event: InputEvent) => {
@@ -138,7 +141,7 @@ export function render(
         }
       }),
     },
-    !hasSelection && editor.getNodeTextContent(editor) === ''
+    isEmpty
       ? [
           renderNode({
             children: [
