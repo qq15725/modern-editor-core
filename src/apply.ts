@@ -1,47 +1,67 @@
-import type { Ancestor, Descendant, EditorApply, NodeEntry, Text } from './types'
+import { createDraft, finishDraft, isDraft } from 'immer'
+import type { Ancestor, Descendant, EditorApply, NodeEntry, Range, Text } from './types'
 
 export function useEditorApply(): EditorApply {
   return {
     apply(op) {
       for (const ref of this.getPathRefs()) {
         const { current, affinity } = ref
-        if (current == null) continue
-        const path = this.transformPath(current, op, { affinity })
-        ref.current = path
-        if (path == null) ref.unref()
+        if (current) {
+          const path = this.transformPath(current, op, { affinity })
+          ref.current = path
+          if (!path) ref.unref()
+        }
       }
 
       for (const ref of this.getPointRefs()) {
         const { current, affinity } = ref
-        if (current == null) continue
-        const point = this.transformPoint(current, op, { affinity })
-        ref.current = point
-        if (point == null) ref.unref()
+        if (current) {
+          const point = this.transformPoint(current, op, { affinity })
+          ref.current = point
+          if (!point) ref.unref()
+        }
       }
 
       for (const ref of this.getRangeRefs()) {
         const { current, affinity } = ref
-        if (current == null) continue
-        const path = this.transformRange(current, op, { affinity })
-        ref.current = path
-        if (path == null) ref.unref()
+        if (current) {
+          const path = this.transformRange(current, op, { affinity })
+          ref.current = path
+          if (!path) ref.unref()
+        }
       }
 
-      this.selection = this.applyToDraft(op)
+      this.children = createDraft(this.children)
+      let selection = this.selection
+        ? createDraft(this.selection)
+        : undefined
+
+      try {
+        selection = this.applyToDraft(selection, op)
+      } finally {
+        this.children = finishDraft(this.children)
+        if (selection) {
+          this.selection = isDraft(selection)
+            ? (finishDraft(selection) as unknown as Range)
+            : selection as unknown as Range
+        } else {
+          this.selection = undefined
+        }
+      }
 
       this.emit(op.type, op)
       this.emit('change', op)
     },
-    applyToDraft(op) {
-      let selection = this.selection
+    applyToDraft(selection, op) {
+      selection = selection
         ? {
             anchor: {
-              path: [...this.selection.anchor.path],
-              offset: this.selection.anchor.offset,
+              path: [...selection.anchor.path],
+              offset: selection.anchor.offset,
             },
             focus: {
-              path: [...this.selection.focus.path],
-              offset: this.selection.focus.offset,
+              path: [...selection.focus.path],
+              offset: selection.focus.offset,
             },
           }
         : undefined

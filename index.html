@@ -5,12 +5,47 @@
   <title>Playground</title>
 </head>
 <body>
-  <div>Playground</div>
+<div id="app"></div>
 
-  <script type="module">
-    import { one } from './src'
+<script type="module">
+  import { createApp, h, nextTick, ref } from 'https://cdn.bootcdn.net/ajax/libs/vue/3.2.39/vue.esm-browser.js'
+  import { DOMSelectionChange, createEditorCore, render, selectionChange } from './src'
 
-    console.log(one)
-  </script>
+  createApp({
+    setup() {
+      const editor = createEditorCore([
+        {
+          children: [
+            { text: '' },
+          ],
+        },
+      ])
+
+      const hasSelection = ref(false)
+      const nodes = ref([])
+
+      editor.on('change', async () => {
+        nodes.value = [...editor.children]
+        await nextTick()
+        selectionChange(editor)
+        hasSelection.value = Boolean(editor.selection)
+      })
+
+      document.addEventListener('selectionchange', () => DOMSelectionChange(editor))
+
+      return () => {
+        return [
+          render(
+            editor,
+            { width: '300px', minHeight: '100px' },
+            hasSelection.value,
+            h,
+          ),
+          h('pre', JSON.stringify(nodes.value, null, 2)),
+        ]
+      }
+    },
+  }).mount('#app')
+</script>
 </body>
 </html>

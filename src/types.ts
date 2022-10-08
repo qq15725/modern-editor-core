@@ -168,7 +168,7 @@ export type Operation = ExtendedType<'Operation', BaseOperation>
 
 export interface EditorApply {
   apply(this: EditorCore, op: Operation): void
-  applyToDraft(this: EditorCore, op: Operation): Range | undefined
+  applyToDraft(this: EditorCore, selection: Range | undefined, op: Operation): Range | undefined
 }
 
 export interface EditorPath {
