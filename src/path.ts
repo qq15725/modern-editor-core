@@ -97,6 +97,15 @@ export function useEditorPath(): EditorPath {
       if (reverse) paths.reverse()
       return paths
     },
+    getAncestorPaths(path, options = {}) {
+      const { reverse = false } = options
+      const paths = this.getLevelPaths(path, options)
+      if (reverse) {
+        return paths.slice(1)
+      } else {
+        return paths.slice(0, -1)
+      }
+    },
     getPathRef(path, options = {}) {
       const { affinity = 'forward' } = options
       const ref: PathRef = {

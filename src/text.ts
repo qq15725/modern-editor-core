@@ -1,4 +1,4 @@
-import { isPlainObject } from './utils'
+import { isDeepEqual, isPlainObject } from './utils'
 import type { EditorText, Node, Text } from './types'
 
 export function useEditorText(): EditorText {
@@ -39,6 +39,18 @@ export function useEditorText(): EditorText {
         text += t
       }
       return text
+    },
+    equalsText(text, another, options = {}) {
+      const { loose = false } = options
+      function omitText(obj: Record<any, any>) {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { text, ...rest } = obj
+        return rest
+      }
+      return isDeepEqual(
+        loose ? omitText(text) : text,
+        loose ? omitText(another) : another,
+      )
     },
   }
 }

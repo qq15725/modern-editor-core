@@ -167,7 +167,10 @@ export type BaseOperation = NodeOperation | SelectionOperation | TextOperation
 export type Operation = ExtendedType<'Operation', BaseOperation>
 
 export interface EditorApply {
+  operations: Operation[]
+  applying: boolean
   apply(this: EditorCore, op: Operation): void
+  applyTransform(this: EditorCore, op: Operation): void
   applyToDraft(this: EditorCore, selection: Range | undefined, op: Operation): Range | undefined
 }
 
@@ -189,6 +192,7 @@ export interface EditorPath {
   getNextPath(this: EditorCore, path: Path): Path
   getCommonPath(this: EditorCore, path: Path, another: Path): Path
   getLevelPaths(this: EditorCore, path: Path, options?: { reverse?: boolean }): Path[]
+  getAncestorPaths(this: EditorCore, path: Path, options?: { reverse?: boolean }): Path[]
   getPathRef(this: EditorCore, path: Path, options?: {
     affinity?: 'forward' | 'backward' | null
   }): PathRef
@@ -294,6 +298,7 @@ export interface EditorText {
     pass?: (node: NodeEntry) => boolean
   }): Generator<NodeEntry<Text>, void, undefined>
   getTextContent(this: EditorCore, at: Location, options?: { voids?: boolean }): string
+  equalsText(this: EditorCore, text: Text, another: Text, options?: { loose?: boolean }): boolean
 }
 
 export interface EditorElement {
@@ -315,6 +320,7 @@ export interface EditorNode {
   getNodes(
     this: EditorCore,
     options?: {
+      root?: Node
       from?: Path
       to?: Path
       reverse?: boolean
@@ -324,6 +330,7 @@ export interface EditorNode {
   queryNodes<T extends Node>(
     this: EditorCore,
     options?: {
+      root?: Node
       at?: Location | Span
       match?: NodeMatch<T>
       mode?: 'all' | 'highest' | 'lowest'
@@ -447,6 +454,14 @@ export interface EditorNode {
   }): void
 }
 
+export interface EditorNormalize {
+  dirtyPaths: Path[]
+  dirtyPathKeys: Set<string>
+  isNormalizing: boolean
+  normalize(this: EditorCore, options?: { force?: boolean }): void
+  withoutNormalizing(this: EditorCore, fn: () => void): void
+}
+
 export interface EditorListener {
   on(this: EditorCore, type: string, listener: (...args: any[]) => void): void
   off(this: EditorCore, type: string, listener: (...args: any[]) => void): void
@@ -463,6 +478,7 @@ export interface EditorCore extends
   EditorText,
   EditorElement,
   EditorNode,
+  EditorNormalize,
   EditorListener {
   __editor__: true
   selection: Range | undefined
@@ -486,4 +502,6 @@ export interface EditorCore extends
   }): NodeEntry<Element> | undefined
   insertBreak(this: EditorCore): void
   insertSoftBreak(this: EditorCore): void
+  normalizeNode(this: EditorCore, entry: NodeEntry): void
+  getDirtyPaths(this: EditorCore, op: Operation): Path[]
 }

@@ -19,7 +19,11 @@ function hotkey(keydown: (key: string, event: KeyboardEvent) => void) {
 
 export function render(
   editor: EditorCore,
-  styles: Record<string, any>,
+  props: {
+    placeholder?: string
+    style?: Record<string, any>
+    [key: string]: any
+  },
   hasSelection: boolean,
   createElement: (tag: string, attrs: Record<string, any>, children: any[]) => any,
   createAttributes?: (node: Node) => Record<string, any>,
@@ -77,10 +81,12 @@ export function render(
   }
 
   const isEmpty = !hasSelection && editor.getNodeTextContent(editor) === ''
+  const { placeholder = '请输入...', style = {}, ...attrs } = props
 
   return createElement(
     'div',
     {
+      ...attrs,
       'role': 'textbox',
       'contentEditable': true,
       'aria-multiline': true,
@@ -92,7 +98,7 @@ export function render(
         whiteSpace: 'pre-wrap',
         wordWrap: 'break-word',
         color: isEmpty ? 'grey' : undefined,
-        ...styles,
+        ...style,
       },
       'onBeforeinput': (event: InputEvent) => {
         event.preventDefault()
@@ -143,11 +149,7 @@ export function render(
     },
     isEmpty
       ? [
-          renderNode({
-            children: [
-              { text: '请输入...' },
-            ],
-          }, [0], editor as unknown as Element),
+          renderNode({ children: [{ text: placeholder }] }, [0], editor as unknown as Element),
         ]
       : editor.children.map((node, index) => renderNode(node, [index], editor as unknown as Element)),
 

@@ -1,8 +1,10 @@
 import { createDraft, finishDraft, isDraft } from 'immer'
-import type { Ancestor, Descendant, EditorApply, NodeEntry, Range, Text } from './types'
+import type { Ancestor, Descendant, EditorApply, NodeEntry, Path, Range, Text } from './types'
 
 export function useEditorApply(): EditorApply {
   return {
+    operations: [],
+    applying: false,
     apply(op) {
       for (const ref of this.getPathRefs()) {
         const { current, affinity } = ref
@@ -31,11 +33,52 @@ export function useEditorApply(): EditorApply {
         }
       }
 
+      const oldDirtyPaths = this.dirtyPaths
+      const oldDirtyPathKeys = this.dirtyPathKeys
+      let dirtyPaths: Path[]
+      let dirtyPathKeys: Set<string>
+
+      const add = (path: Path | null) => {
+        if (path) {
+          const key = path.join(',')
+          if (!dirtyPathKeys.has(key)) {
+            dirtyPathKeys.add(key)
+            dirtyPaths.push(path)
+          }
+        }
+      }
+
+      if (['insert_node', 'remove_node', 'merge_node', 'split_node', 'move_node'].includes(op.type)) {
+        dirtyPaths = []
+        dirtyPathKeys = new Set()
+        for (const path of oldDirtyPaths) add(this.transformPath(path, op))
+      } else {
+        dirtyPaths = oldDirtyPaths
+        dirtyPathKeys = oldDirtyPathKeys
+      }
+
+      for (const path of this.getDirtyPaths(op)) add(path)
+
+      this.dirtyPaths = dirtyPaths
+      this.dirtyPathKeys = dirtyPathKeys
+      this.applyTransform(op)
+      this.operations.push(op)
+      this.normalize()
+
+      if (!this.applying) {
+        this.applying = true
+        Promise.resolve().then(() => {
+          this.applying = false
+          this.emit('change', op)
+          this.operations = []
+        })
+      }
+    },
+    applyTransform(op) {
       this.children = createDraft(this.children)
       let selection = this.selection
         ? createDraft(this.selection)
         : undefined
-
       try {
         selection = this.applyToDraft(selection, op)
       } finally {
@@ -48,9 +91,7 @@ export function useEditorApply(): EditorApply {
           this.selection = undefined
         }
       }
-
       this.emit(op.type, op)
-      this.emit('change', op)
     },
     applyToDraft(selection, op) {
       selection = selection
