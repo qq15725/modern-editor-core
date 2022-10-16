@@ -5,7 +5,10 @@ import DOMText = globalThis.Text
 import DOMRange = globalThis.Range
 import DOMSelection = globalThis.Selection
 import DOMStaticRange = globalThis.StaticRange
-import type { EditorCore, Point, Range } from './types'
+import { isBackwardRange, isCollapsedRange } from './range'
+import type { Point } from './point'
+import type { Range } from './range'
+import type { EditorCore } from './types'
 
 export type DOMPoint = [DOMNode, number]
 
@@ -167,9 +170,9 @@ export function pointToDomPoint(editor: EditorCore, point: Point): DOMPoint {
 
 export function rangeToDomRange(editor: EditorCore, range: Range): DOMRange {
   const { anchor, focus } = range
-  const isBackward = editor.isBackwardRange(range)
+  const isBackward = isBackwardRange(range)
   const domAnchor = pointToDomPoint(editor, anchor)
-  const domFocus = editor.isCollapsedRange(range) ? domAnchor : pointToDomPoint(editor, focus)
+  const domFocus = isCollapsedRange(range) ? domAnchor : pointToDomPoint(editor, focus)
   const domRange = window.document.createRange()
   const [startNode, startOffset] = isBackward ? domFocus : domAnchor
   const [endNode, endOffset] = isBackward ? domAnchor : domFocus

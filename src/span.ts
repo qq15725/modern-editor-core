@@ -1,13 +1,10 @@
-import type { EditorSpan, Span } from './types'
+import { isPath } from './path'
+import type { Path } from './path'
 
-export function useEditorSpan(): EditorSpan {
-  return {
-    isSpan(value): value is Span {
-      return (
-        Array.isArray(value)
-        && value.length === 2
-        && value.every((v) => this.isPath(v))
-      )
-    },
-  }
+export type Span = [Path, Path]
+
+export function isSpan(value: any): value is Span {
+  return Array.isArray(value)
+    && value.length === 2
+    && value.every((v) => isPath(v))
 }

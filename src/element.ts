@@ -1,26 +1,27 @@
+import { isNodes } from './node'
 import { isPlainObject } from './utils'
-import type { Ancestor, EditorElement, Element } from './types'
+import type { EditorCore } from './types'
+import type { Node } from './node'
 
-export function useEditorElement(): EditorElement {
-  return {
-    isElement(value): value is Element {
-      return (
-        isPlainObject(value)
-        && this.isNodeList(value.children)
-        && !value.__editor__
-      )
-    },
-    isBlockElement(value): value is Element {
-      return this.isElement(value) && this.isBlock(value)
-    },
-    isInlineElement(value): value is Element {
-      return this.isElement(value) && this.isInline(value)
-    },
-    isVoidElement(value): value is Element {
-      return this.isElement(value) && this.isVoid(value)
-    },
-    isAncestor(value): value is Ancestor {
-      return isPlainObject(value) && this.isNodeList(value.children)
-    },
-  }
+export interface Element {
+  children: Node[]
+  [key: string]: unknown
+}
+
+export function isElement(value: any): value is Element {
+  return isPlainObject(value)
+    && isNodes(value.children)
+    && !value.__editor__
+}
+
+export function isBlockElement(editor: EditorCore, value: any): value is Element {
+  return isElement(value) && editor.isBlock(value)
+}
+
+export function isInlineElement(editor: EditorCore, value: any): value is Element {
+  return isElement(value) && editor.isInline(value)
+}
+
+export function isVoidElement(editor: EditorCore, value: any): value is Element {
+  return isElement(value) && editor.isVoid(value)
 }

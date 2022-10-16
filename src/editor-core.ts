@@ -1,49 +1,58 @@
-import { useEditorApply } from './apply'
-import { useEditorElement } from './element'
+import { isElement, isInlineElement, isVoidElement } from './element'
 import { useEditorListener } from './listener'
-import { useEditorPoint } from './point'
-import { useEditorNode } from './node'
-import { useEditorNormalize } from './normalize'
-import { useEditorPath } from './path'
-import { useEditorRange } from './range'
-import { useEditorSelection } from './selection'
-import { useEditorSpan } from './span'
-import { useEditorText } from './text'
+import {
+  getLevelNodes,
+  getNodeEntries,
+  getNodeOrFail,
+  insertNodes,
+  isNodes, mergeNodes, removeNodes,
+  splitNodes,
+} from './node'
+import {
+  getAncestorPaths,
+  getLevelPaths,
+  getNextPath,
+  getPath,
+  getPreviousPath,
+  isEqualPath,
+  transformPath,
+} from './path'
+import { isEqualText, isText } from './text'
 import { isPlainObject } from './utils'
-import type { Descendant, EditorCore, Node, Path, Range } from './types'
+import type { Node } from './node'
+import type { PointRef } from './point'
+import type { Path, PathRef } from './path'
+import type { Range, RangeRef } from './range'
+import type { Descendant } from './descendant'
+import type { EditorCore } from './types'
+
+export function isEditor(value: any): value is EditorCore {
+  return Boolean(
+    isPlainObject(value)
+    && isNodes(value.children)
+    && value.__editor__,
+  )
+}
 
 export function createEditorCore(children: Node[] = [], selection?: Range): EditorCore {
   return {
-    ...useEditorApply(),
-    ...useEditorElement(),
     ...useEditorListener(),
-    ...useEditorNode(),
-    ...useEditorNormalize(),
-    ...useEditorPath(),
-    ...useEditorPoint(),
-    ...useEditorRange(),
-    ...useEditorSelection(),
-    ...useEditorSpan(),
-    ...useEditorText(),
     __editor__: true,
-    children,
+    pathRefs: new Set<PathRef>(),
+    pointRefs: new Set<PointRef>(),
+    rangeRefs: new Set<RangeRef>(),
+    dirtyPaths: [],
+    dirtyPathKeys: new Set(),
+    isNormalizing: true,
+    operations: [],
+    applying: false,
     selection,
-    isEditor(value): value is EditorCore {
-      return Boolean(
-        isPlainObject(value)
-        && this.isNodeList(value.children)
-        && value.__editor__,
-      )
-    },
+    children,
     isBlock(value) {
       return !this.isInline(value)
     },
-    isInline() {
-      return false
-    },
-    isVoid() {
-      return false
-    },
+    isInline: () => false,
+    isVoid: () => false,
     isEmpty(element): boolean {
       const { children } = element
       const first = children[0]
@@ -51,85 +60,85 @@ export function createEditorCore(children: Node[] = [], selection?: Range): Edit
         children.length === 0
         || (
           children.length === 1
-          && this.isText(first)
+          && isText(first)
           && first.text === ''
           && !this.isVoid(element)
         )
       )
     },
     hasInlines(element) {
-      return element.children.some(n => this.isText(n) || this.isInlineElement(n))
+      return element.children.some(n => isText(n) || isInlineElement(this, n))
     },
     void(options = {}) {
-      return this.above({ ...options, match: n => this.isVoidElement(n) })
+      return this.above({ ...options, match: n => isVoidElement(this, n) })
     },
     above(options = {}) {
       const { voids = false, mode = 'lowest', at = this.selection, match } = options
       if (!at) return undefined
-      const path = this.getPath(at)
+      const path = getPath(at)
       const reverse = mode === 'lowest'
-      for (const [n, p] of this.getLevelNodes({ at: path, voids, match, reverse })) {
-        if (!this.isText(n) && !this.equalsPath(path, p)) {
+      for (const [n, p] of getLevelNodes(this, { at: path, voids, match, reverse })) {
+        if (!isText(n) && !isEqualPath(path, p)) {
           return [n, p]
         }
       }
       return undefined
     },
     insertBreak() {
-      this.splitNodes({ always: true })
+      splitNodes(this, { always: true })
     },
     insertSoftBreak() {
-      this.splitNodes({ always: true })
+      splitNodes(this, { always: true })
     },
     normalizeNode(entry) {
       const [node, path] = entry
-      if (this.isText(node)) return
-      if (this.isElement(node) && node.children.length === 0) {
-        this.insertNodes({ text: '' }, { at: path.concat(0), voids: true })
+      if (isText(node)) return
+      if (isElement(node) && node.children.length === 0) {
+        insertNodes(this, { text: '' }, { at: path.concat(0), voids: true })
         return
       }
-      const shouldHaveInlines = this.isEditor(node)
+      const shouldHaveInlines = isEditor(node)
         ? false
-        : this.isElement(node)
+        : isElement(node)
         && (this.isInline(node)
           || node.children.length === 0
-          || this.isText(node.children[0])
-          || this.isInlineElement(node.children[0]))
+          || isText(node.children[0])
+          || isInlineElement(this, node.children[0]))
       let n = 0
       for (let i = 0; i < node.children.length; i++, n++) {
-        const currentNode = this.getNode(path)
-        if (this.isText(currentNode)) continue
+        const currentNode = getNodeOrFail(this, path)
+        if (isText(currentNode)) continue
         const child = node.children[i] as Descendant
         const prev = currentNode.children[n - 1] as Descendant
         const isLast = i === node.children.length - 1
         const isInlineOrText
-          = this.isText(child)
-          || (this.isElement(child) && this.isInline(child))
+          = isText(child)
+          || (isElement(child) && this.isInline(child))
         if (isInlineOrText !== shouldHaveInlines) {
-          this.removeNodes({ at: path.concat(n), voids: true })
+          removeNodes(this, { at: path.concat(n), voids: true })
           n--
-        } else if (this.isElement(child)) {
+        } else if (isElement(child)) {
           if (this.isInline(child)) {
-            if (prev == null || !this.isText(prev)) {
+            if (prev == null || !isText(prev)) {
               const newChild = { text: '' }
-              this.insertNodes(newChild, { at: path.concat(n), voids: true })
+              insertNodes(this, newChild, { at: path.concat(n), voids: true })
               n++
             } else if (isLast) {
               const newChild = { text: '' }
-              this.insertNodes(newChild, { at: path.concat(n + 1), voids: true })
+              insertNodes(this, newChild, { at: path.concat(n + 1), voids: true })
               n++
             }
           }
         } else {
-          if (prev != null && this.isText(prev)) {
-            if (this.equalsText(child, prev, { loose: true })) {
-              this.mergeNodes({ at: path.concat(n), voids: true })
+          if (prev != null && isText(prev)) {
+            if (isEqualText(child, prev, { loose: true })) {
+              mergeNodes(this, { at: path.concat(n), voids: true })
               n--
             } else if (prev.text === '') {
-              this.removeNodes({ at: path.concat(n - 1), voids: true })
+              removeNodes(this, { at: path.concat(n - 1), voids: true })
               n--
             } else if (child.text === '') {
-              this.removeNodes({ at: path.concat(n), voids: true })
+              removeNodes(this, { at: path.concat(n), voids: true })
               n--
             }
           }
@@ -141,43 +150,43 @@ export function createEditorCore(children: Node[] = [], selection?: Range): Edit
         case 'insert_text':
         case 'remove_text':
         case 'set_node': {
-          return this.getLevelPaths(op.path)
+          return getLevelPaths(op.path)
         }
 
         case 'insert_node': {
           const { node, path } = op
-          const levels = this.getLevelPaths(path)
-          const descendants = this.isText(node)
+          const levels = getLevelPaths(path)
+          const descendants = isText(node)
             ? []
-            : Array.from(this.queryNodes({ root: node }), ([, p]) => path.concat(p))
+            : Array.from(getNodeEntries(this, node), ([, p]) => path.concat(p))
 
           return [...levels, ...descendants]
         }
 
         case 'merge_node': {
           const { path } = op
-          const ancestors = this.getAncestorPaths(path)
-          const previousPath = this.getPreviousPath(path)
+          const ancestors = getAncestorPaths(path)
+          const previousPath = getPreviousPath(path)
           return [...ancestors, previousPath]
         }
 
         case 'move_node': {
           const { path, newPath } = op
 
-          if (this.equalsPath(path, newPath)) {
+          if (isEqualPath(path, newPath)) {
             return []
           }
 
           const oldAncestors: Path[] = []
           const newAncestors: Path[] = []
 
-          for (const ancestor of this.getAncestorPaths(path)) {
-            const p = this.transformPath(ancestor, op)
+          for (const ancestor of getAncestorPaths(path)) {
+            const p = transformPath(ancestor, op)
             oldAncestors.push(p!)
           }
 
-          for (const ancestor of this.getAncestorPaths(newPath)) {
-            const p = this.transformPath(ancestor, op)
+          for (const ancestor of getAncestorPaths(newPath)) {
+            const p = transformPath(ancestor, op)
             newAncestors.push(p!)
           }
 
@@ -189,13 +198,13 @@ export function createEditorCore(children: Node[] = [], selection?: Range): Edit
         }
 
         case 'remove_node': {
-          return [...this.getAncestorPaths(op.path)]
+          return [...getAncestorPaths(op.path)]
         }
 
         case 'split_node': {
           const { path } = op
-          const levels = this.getLevelPaths(path)
-          const nextPath = this.getNextPath(path)
+          const levels = getLevelPaths(path)
+          const nextPath = getNextPath(path)
           return [...levels, nextPath]
         }
 

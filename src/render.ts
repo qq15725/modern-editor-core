@@ -1,5 +1,16 @@
 import { domRangeToRange, rangeToDomRange } from './dom'
-import type { EditorCore, Element, Node, Path, Point, Range } from './types'
+import { isElement, isInlineElement, isVoidElement } from './element'
+import { deleteBackward, deleteForward, deleteFragment, getNodeTextContent, insertText } from './node'
+import { getEndPoint } from './point'
+import { isBackwardRange, isEqualRange, isExpandedRange } from './range'
+import { deselect, select } from './selection'
+import { isText } from './text'
+import type { Point } from './point'
+import type { Node } from './node'
+import type { Path } from './path'
+import type { Range } from './range'
+import type { Element } from './element'
+import type { EditorCore } from './types'
 
 function hotkey(keydown: (key: string, event: KeyboardEvent) => void) {
   const keys = new Map<string, string>()
@@ -33,31 +44,31 @@ export function render(
       ...createAttributes?.(node),
       'data-editor-path': path.join('-'),
     }
-    if (editor.isText(node)) {
+    if (isText(node)) {
       attrs['data-editor-node'] = 'text'
     } else {
       attrs['data-editor-node'] = 'element'
-      if (editor.isInlineElement(node)) {
+      if (isInlineElement(editor, node)) {
         attrs['data-editor-inline'] = true
       }
-      if (editor.isVoidElement(node)) {
+      if (isVoidElement(editor, node)) {
         attrs['data-editor-void'] = true
       }
     }
-    if (editor.isText(node)) {
+    if (isText(node)) {
       return createElement('span', attrs, [
         createElement('span', { 'data-editor-leaf': true }, [
           editor.isVoid(parent)
             ? createElement('span', {
               'data-editor-zero-width': 'z',
-              'data-editor-length': editor.getNodeTextContent(node).length,
+              'data-editor-length': getNodeTextContent(node).length,
             }, ['\uFEFF'])
             : node.text === ''
               ? createElement('span', { 'data-editor-zero-width': 'z' }, ['\uFEFF'])
               : createElement('span', { 'data-editor-string': true }, [node.text]),
         ]),
       ])
-    } else if (editor.isElement(node)) {
+    } else if (isElement(node)) {
       return createElement(
         editor.isBlock(node) ? 'div' : 'span',
         attrs,
@@ -80,7 +91,7 @@ export function render(
     }
   }
 
-  const isEmpty = !hasSelection && editor.getNodeTextContent(editor) === ''
+  const isEmpty = !hasSelection && getNodeTextContent(editor) === ''
   const { placeholder = '请输入...', style = {}, ...attrs } = props
 
   return createElement(
@@ -103,13 +114,13 @@ export function render(
       'onBeforeinput': (event: InputEvent) => {
         event.preventDefault()
         if (!(editor as any).isCompositing && event.data) {
-          editor.insertText(event.data)
+          insertText(editor, event.data)
         }
       },
       'onCompositionstart': () => (editor as any).isCompositing = true,
       'onCompositionend': (event: CompositionEvent) => {
         event.preventDefault()
-        event.data && editor.insertText(event.data)
+        event.data && insertText(editor, event.data)
         ;(editor as any).isCompositing = false
       },
       ...hotkey((key, event) => {
@@ -124,18 +135,18 @@ export function render(
             break
           case 'Backspace':
             event.preventDefault()
-            if (editor.selection && editor.isExpandedRange(editor.selection)) {
-              editor.deleteFragment({ direction: 'backward' })
+            if (editor.selection && isExpandedRange(editor.selection)) {
+              deleteFragment(editor, { direction: 'backward' })
             } else {
-              editor.deleteBackward()
+              deleteBackward(editor)
             }
             break
           case 'Delete':
             event.preventDefault()
-            if (editor.selection && editor.isExpandedRange(editor.selection)) {
-              editor.deleteFragment({ direction: 'forward' })
+            if (editor.selection && isExpandedRange(editor.selection)) {
+              deleteFragment(editor, { direction: 'forward' })
             } else {
-              editor.deleteForward()
+              deleteForward(editor)
             }
             break
           case 'mod+z':
@@ -162,9 +173,9 @@ export function selectionChange(editor: EditorCore) {
   if (!domSelection) return
   if (editor.selection) {
     try {
-      if (editor.equalsRange(editor.selection, domRangeToRange(domSelection))) return
+      if (isEqualRange(editor.selection, domRangeToRange(domSelection))) return
       const newDomRange = rangeToDomRange(editor, editor.selection)
-      if (editor.isBackwardRange(editor.selection)) {
+      if (isBackwardRange(editor.selection)) {
         domSelection.setBaseAndExtent(
           newDomRange.endContainer,
           newDomRange.endOffset,
@@ -197,10 +208,10 @@ export function DOMSelectionChange(editor: EditorCore) {
     try {
       range = domRangeToRange(domSelection)
     } catch (err) {
-      range = editor.getEndPoint()
+      range = getEndPoint(editor)
     }
-    editor.select(range)
+    select(editor, range)
   } else {
-    editor.deselect()
+    deselect(editor)
   }
 }
