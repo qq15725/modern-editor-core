@@ -1,5 +1,5 @@
 import { apply } from './apply'
-import { isEditor } from './editor-core'
+import { getCurrentEditorOrFail, isEditor, isInline } from './editor-core'
 import { isBlockElement, isElement, isInlineElement, isVoidElement } from './element'
 import { isAncestor } from './ancestor'
 import { withoutNormalizing } from './normalize'
@@ -7,7 +7,9 @@ import {
   comparePath,
   getCommonPath,
   getLevelPaths,
-  getNextPath, getParentPath, getPath,
+  getNextPath,
+  getParentPath,
+  getPath,
   getPathRef,
   getPreviousPath,
   isAfterPath,
@@ -21,8 +23,10 @@ import {
 import {
   getAfterPoint,
   getBeforePoint,
-  getEndPoint, getPoint,
-  getPointRef, getStartPoint,
+  getEndPoint,
+  getPoint,
+  getPointRef,
+  getStartPoint,
   isEdgePoint,
   isEndPoint,
   isEqualPoint,
@@ -51,7 +55,7 @@ import type {
 import type { PointRef } from './point'
 import type { Span } from './span'
 import type { Location } from './location'
-import type { EditorCore } from './types'
+import type { EditorCore } from './editor-core'
 
 export type Node = EditorCore | Element | Text
 export type NodeEntry<T extends Node = Node> = [T, Path]
@@ -75,11 +79,8 @@ function hasSingleChildNest(editor: EditorCore, node: Node): boolean {
     } else {
       return false
     }
-  } else if (isEditor(node)) {
-    return false
-  } else {
-    return true
   }
+  return !isEditor(node)
 }
 
 export function isNode(value: any): value is Node {
@@ -97,8 +98,8 @@ export function isNodes(value: any): value is Node[] {
   return isNodes
 }
 
-export function getNode(root: Ancestor, path: Path): Node | null {
-  let node = root as Node
+export function getNode(path: Path): Node | null {
+  let node = getCurrentEditorOrFail() as Node
   for (let pathIndex = 0; pathIndex < path.length; pathIndex++) {
     const index = path[pathIndex]
     if (isText(node) || !node.children[index]) return null
@@ -107,34 +108,59 @@ export function getNode(root: Ancestor, path: Path): Node | null {
   return node
 }
 
-export function getNodeOrFail(root: Ancestor, path: Path): Node {
-  const node = getNode(root, path)
+export function getNodeOrFail(path: Path): Node {
+  const node = getNode(path)
   if (!node) throw new Error(`Cannot find a descendant at path [${ path }] in node: Editor`)
   return node
 }
 
-export function hasNode(root: Ancestor, path: Path) {
-  return Boolean(getNode(root, path))
+export function hasNode(path: Path) {
+  return Boolean(getNode(path))
+}
+
+export function getNodeEntry(
+  at: Location,
+  options: PathOptions = {},
+): NodeEntry | null {
+  const path = getPath(at, options)
+  const node = getNode(path)
+  return node ? [node, path] : null
+}
+
+export function getNodeEntryOrFail(
+  at: Location,
+  options: PathOptions = {},
+): NodeEntry {
+  const entry = getNodeEntry(at, options)
+  if (!entry) throw new Error(`Cannot find a descendant at at [${ at }] in node: Editor`)
+  return entry
 }
 
 export interface NodesOptions {
+  root?: Ancestor
   from?: Path
   to?: Path
   reverse?: boolean
   pass?: (entry: NodeEntry) => boolean
 }
 
-export function *getNodes(root: Ancestor, options?: NodesOptions): Generator<NodeEntry, void, undefined> {
-  const { from = [], to, pass, reverse = false } = options ?? {}
+export function *getNodes(
+  options: NodesOptions = {},
+): Generator<NodeEntry, void, undefined> {
+  const {
+    root,
+    from = [],
+    to,
+    pass,
+    reverse = false,
+  } = options
   const visited = new Set()
   let path: Path = []
-  let node = root as Node
+  let node = root ?? getCurrentEditorOrFail() as Node
 
   while (true) {
     if (to && (reverse ? isBeforePath(path, to) : isAfterPath(path, to))) break
-
     if (!visited.has(node)) yield [node, path]
-
     if (
       !visited.has(node)
       && !isText(node)
@@ -147,52 +173,27 @@ export function *getNodes(root: Ancestor, options?: NodesOptions): Generator<Nod
         nextIndex = from[path.length]
       }
       path = path.concat(nextIndex)
-      node = getNodeOrFail(root, path)
+      node = getNodeOrFail(path)
       continue
     }
-
     if (path.length === 0) break
-
     if (!reverse) {
       const newPath = getNextPath(path)
-
-      if (hasNode(root, newPath)) {
+      if (hasNode(newPath)) {
         path = newPath
-        node = getNodeOrFail(root, path)
+        node = getNodeOrFail(path)
         continue
       }
     }
-
     if (reverse && path[path.length - 1] !== 0) {
       path = getPreviousPath(path)
-      node = getNodeOrFail(root, path)
+      node = getNodeOrFail(path)
       continue
     }
-
     path = getParentPath(path)
-    node = getNodeOrFail(root, path)
+    node = getNodeOrFail(path)
     visited.add(node)
   }
-}
-
-export function getNodeEntry(
-  root: Ancestor,
-  at: Location,
-  options: PathOptions = {},
-): NodeEntry | null {
-  const path = getPath(at, options)
-  const node = getNode(root, path)
-  return node ? [node, path] : null
-}
-
-export function getNodeEntryOrFail(
-  root: Ancestor,
-  at: Location,
-  options: PathOptions = {},
-): NodeEntry {
-  const res = getNodeEntry(root, at, options)
-  if (!res) throw new Error(`Cannot find a descendant at at [${ at }] in node: Editor`)
-  return res
 }
 
 export interface NodeEntriesOptions<T extends Node> {
@@ -205,12 +206,10 @@ export interface NodeEntriesOptions<T extends Node> {
 }
 
 export function *getNodeEntries<T extends Node>(
-  editor: EditorCore,
-  node: Node,
   options: NodeEntriesOptions<T> = {},
 ): Generator<NodeEntry<T>, void, undefined> {
   const {
-    at,
+    at = [],
     mode = 'all',
     universal = false,
     reverse = false,
@@ -233,11 +232,11 @@ export function *getNodeEntries<T extends Node>(
     to = reverse ? first : last
   }
 
-  const nodeEntries = getNodes(editor, {
+  const nodeEntries = getNodes({
     reverse,
     from,
     to,
-    pass: ([n]) => (voids ? false : isVoidElement(editor, n)),
+    pass: ([n]) => (voids ? false : isVoidElement(n)),
   })
 
   const matches: NodeEntry<T>[] = []
@@ -245,23 +244,18 @@ export function *getNodeEntries<T extends Node>(
 
   for (const [node, path] of nodeEntries) {
     const isLower = hit && comparePath(path, hit[1]) === 0
-
     if (mode === 'highest' && isLower) continue
-
     if (!match(node, path)) {
       if (universal && !isLower && isText(node)) return
       continue
     }
-
     if (mode === 'lowest' && isLower) {
       hit = [node, path]
       continue
     }
-
-    const emit: NodeEntry<any> | undefined = mode === 'lowest'
+    const emit: NodeEntry<T> | undefined = mode === 'lowest'
       ? hit
       : [node, path]
-
     if (emit) {
       if (universal) {
         matches.push(emit)
@@ -269,7 +263,6 @@ export function *getNodeEntries<T extends Node>(
         yield emit
       }
     }
-
     hit = [node, path]
   }
 
@@ -286,10 +279,10 @@ export function *getNodeEntries<T extends Node>(
   }
 }
 
-export function getFirstChildNodeEntry(root: Ancestor, at: Location): NodeEntry {
+export function getFirstChildNodeEntry(at: Location): NodeEntry {
   if (isPath(at)) {
     at = at.slice()
-    let node = getNodeOrFail(root, at)
+    let node = getNodeOrFail(at)
     while (node) {
       if (isText(node) || node.children.length === 0) break
       node = node.children[0]
@@ -297,13 +290,13 @@ export function getFirstChildNodeEntry(root: Ancestor, at: Location): NodeEntry 
     }
     return [node, at]
   }
-  return getNodeEntryOrFail(root, at, { edge: 'start' })
+  return getNodeEntryOrFail(at, { edge: 'start' })
 }
 
-export function getLastChildNodeEntry(root: Ancestor, at: Location): NodeEntry {
+export function getLastChildNodeEntry(at: Location): NodeEntry {
   if (isPath(at)) {
     at = at.slice()
-    let node = getNodeOrFail(root, at)
+    let node = getNodeOrFail(at)
     while (node) {
       if (isText(node) || node.children.length === 0) break
       const last = node.children.length - 1
@@ -312,23 +305,23 @@ export function getLastChildNodeEntry(root: Ancestor, at: Location): NodeEntry {
     }
     return [node, at]
   }
-  return getNodeEntryOrFail(root, at, { edge: 'end' })
+  return getNodeEntryOrFail(at, { edge: 'end' })
 }
 
-export function getParentNodeEntry(root: Ancestor, path: Path): NodeEntry<Ancestor> | null {
+export function getParentNodeEntry(path: Path): NodeEntry<Ancestor> | null {
   path = getParentPath(path)
-  const node = getNode(root, path)
+  const node = getNode(path)
   return node && !isText(node) ? [node, path] : null
 }
 
-export function getParentNodeEntryOrFail(root: Ancestor, path: Path): NodeEntry<Ancestor> {
-  const entry = getParentNodeEntry(root, path)
+export function getParentNodeEntryOrFail(path: Path): NodeEntry<Ancestor> {
+  const entry = getParentNodeEntry(path)
   if (!entry) throw new Error(`Cannot get the parent of path [${ path }] because it does not exist in the root.`)
   return entry
 }
 
-export function getParentNode(root: Ancestor, path: Path): Ancestor {
-  return getParentNodeEntryOrFail(root, path)[0]
+export function getParentNode(path: Path): Ancestor {
+  return getParentNodeEntryOrFail(path)[0]
 }
 
 export interface PreviousNodeOptions<T extends Node> {
@@ -339,41 +332,60 @@ export interface PreviousNodeOptions<T extends Node> {
 }
 
 export function getPreviousNode<T extends Node>(
-  editor: EditorCore,
-  root: Ancestor,
   options: PreviousNodeOptions<T> = {},
 ): NodeEntry<T> | undefined {
   const { mode = 'lowest', voids = false, at } = options
   let { match } = options
   if (!at) return
-
-  const pointBeforeLocation = getBeforePoint(editor, at, { voids })
+  const pointBeforeLocation = getBeforePoint(at, { voids })
   if (!pointBeforeLocation) return
-
-  const [, to] = getFirstChildNodeEntry(root, [])
-
+  const [, to] = getFirstChildNodeEntry([])
   const span: Span = [pointBeforeLocation.path, to]
-
-  if (isPath(at) && at.length === 0) {
-    throw new Error('Cannot get the previous node from the root node!')
-  }
-
+  if (isPath(at) && at.length === 0) throw new Error('Cannot get the previous node from the root node!')
   if (match == null) {
     if (isPath(at)) {
-      const parent = getParentNode(root, at)
+      const parent = getParentNode(at)
       match = n => parent.children.includes(n)
     } else {
       match = () => true
     }
   }
-
-  return getNodeEntries<T>(editor, root, {
+  return getNodeEntries<T>({
     reverse: true,
     at: span,
     match,
     mode,
     voids,
   }).next().value as any
+}
+
+export interface AboveNodeEntryOptions<T extends Ancestor> {
+  at?: Location
+  match?: NodeMatch<T>
+  mode?: 'highest' | 'lowest' | 'all'
+  voids?: boolean
+}
+
+export function getAboveNodeEntry<T extends Ancestor>(
+  options: AboveNodeEntryOptions<T> = {},
+): NodeEntry<T> | undefined {
+  const editor = getCurrentEditorOrFail()
+  const { voids = false, mode = 'lowest', at = editor.selection, match } = options
+  if (!at) return undefined
+  const path = getPath(at)
+  const reverse = mode === 'lowest'
+  for (const [n, p] of getLevelNodes({ at: path, voids, match, reverse })) {
+    if (!isText(n) && !isEqualPath(path, p)) {
+      return [n, p]
+    }
+  }
+  return undefined
+}
+
+export function getAboveVoidNodeEntry<T extends Ancestor>(
+  options: Omit<AboveNodeEntryOptions<T>, 'match'> = {},
+): NodeEntry<T> | undefined {
+  return getAboveNodeEntry({ ...options, match: n => isVoidElement(n) })
 }
 
 export interface LevelNodesOptions<T extends Node> {
@@ -384,19 +396,19 @@ export interface LevelNodesOptions<T extends Node> {
 }
 
 export function *getLevelNodes<T extends Node>(
-  editor: EditorCore,
   options: LevelNodesOptions<T> = {},
 ): Generator<NodeEntry<T>, void, undefined> {
+  const editor = getCurrentEditorOrFail()
   const { at = editor.selection, reverse = false, voids = false } = options
   let { match } = options
   if (match == null) match = () => true
   if (!at) return
   const levels: NodeEntry<any>[] = []
   for (const p of getLevelPaths(getPath(at))) {
-    const n = getNodeOrFail(editor, p)
+    const n = getNodeOrFail(p)
     if (!match(n, p)) continue
     levels.push([n, p])
-    if (!voids && isVoidElement(editor, n)) break
+    if (!voids && isVoidElement(n)) break
   }
   if (reverse) levels.reverse()
   yield * levels
@@ -432,11 +444,11 @@ export interface InsertNodesOptions<T extends Node> {
 }
 
 export function insertNodes<T extends Node>(
-  editor: EditorCore,
   nodes: Node | Node[],
   options: InsertNodesOptions<T> = {},
 ): void {
-  withoutNormalizing(editor, () => {
+  const editor = getCurrentEditorOrFail()
+  withoutNormalizing(() => {
     const { hanging = false, voids = false, mode = 'lowest' } = options
     let { at, match, select: needSelect } = options
 
@@ -447,7 +459,7 @@ export function insertNodes<T extends Node>(
       if (editor.selection) {
         at = editor.selection
       } else if (editor.children.length > 0) {
-        at = getEndPoint(editor)
+        at = getEndPoint()
       } else {
         at = [0]
       }
@@ -456,13 +468,13 @@ export function insertNodes<T extends Node>(
 
     if (isRange(at)) {
       if (!hanging) {
-        at = getUnhangRange(editor, at)
+        at = getUnhangRange(at)
       }
       if (isCollapsedRange(at)) {
         at = at.anchor
       } else {
-        const pointRef = getPointRef(editor, getRangeEndPoint(at))
-        deleteNodes(editor, { at })
+        const pointRef = getPointRef(getRangeEndPoint(at))
+        deleteNodes({ at })
         at = pointRef.unref()!
       }
     }
@@ -473,24 +485,25 @@ export function insertNodes<T extends Node>(
       if (match == null) {
         if (isText(node)) {
           match = n => isText(n)
-        } else if (editor.isInline(node as Element)) {
-          match = n => isText(n) || isInlineElement(editor, n)
+        } else if (isInline(node as Element)) {
+          match = n => isText(n) || isInlineElement(n)
         } else {
-          match = n => isBlockElement(editor, n)
+          match = n => isBlockElement(n)
         }
       }
 
-      const entry = getNodeEntries(
-        editor,
-        editor,
-        { at: at.path, match, mode, voids },
-      ).next().value as any
+      const entry = getNodeEntries({
+        at: at.path,
+        match,
+        mode,
+        voids,
+      }).next().value as any
 
       if (entry) {
         const [, matchPath] = entry
-        const pathRef = getPathRef(editor, matchPath)
-        const isAtEnd = isEndPoint(editor, at, matchPath)
-        splitNodes(editor, { at, match, mode, voids })
+        const pathRef = getPathRef(matchPath)
+        const isAtEnd = isEndPoint(at, matchPath)
+        splitNodes({ at, match, mode, voids })
         const path = pathRef.unref()!
         at = isAtEnd ? getNextPath(path) : path
       } else {
@@ -499,20 +512,20 @@ export function insertNodes<T extends Node>(
     }
 
     const parentPath = getParentPath(at)
-    if (!voids && editor.void({ at: parentPath })) return
+    if (!voids && getAboveVoidNodeEntry({ at: parentPath })) return
     let index = at[at.length - 1]
 
     for (const node of nodes) {
       const path = parentPath.concat(index)
       index++
-      apply(editor, { type: 'insert_node', node, path })
+      apply({ type: 'insert_node', node, path })
       at = getNextPath(at)
     }
     at = getPreviousPath(at)
     if (needSelect) {
-      const point = getEndPoint(editor, at)
+      const point = getEndPoint(at)
       if (point) {
-        select(editor, point)
+        select(point)
       }
     }
   })
@@ -524,35 +537,35 @@ export interface InsertTextOptions {
 }
 
 export function insertText(
-  editor: EditorCore,
   text: string,
   options: InsertTextOptions = {},
 ): void {
-  withoutNormalizing(editor, () => {
+  const editor = getCurrentEditorOrFail()
+  withoutNormalizing(() => {
     const { voids = false } = options
     let { at = editor.selection } = options
     if (!at) return
-    if (isPath(at)) at = getRange(editor, at)
+    if (isPath(at)) at = getRange(at)
     if (isRange(at)) {
       if (isCollapsedRange(at)) {
         at = at.anchor
       } else {
         const end = getRangeEndPoint(at)
-        if (!voids && editor.void({ at: end })) return
+        if (!voids && getAboveVoidNodeEntry({ at: end })) return
         const start = getRangeStartPoint(at)
-        const startRef = getPointRef(editor, start)
-        const endRef = getPointRef(editor, end)
-        deleteNodes(editor, { at, voids })
+        const startRef = getPointRef(start)
+        const endRef = getPointRef(end)
+        deleteNodes({ at, voids })
         const startPoint = startRef.unref()
         const endPoint = endRef.unref()
         at = startPoint || endPoint!
-        setSelection(editor, { anchor: at, focus: at })
+        setSelection({ anchor: at, focus: at })
       }
     }
-    if (!voids && editor.void({ at })) return
+    if (!voids && getAboveVoidNodeEntry({ at })) return
     const { path, offset } = at
     if (text.length > 0) {
-      apply(editor, { type: 'insert_text', path, offset, text })
+      apply({ type: 'insert_text', path, offset, text })
     }
   })
 }
@@ -567,43 +580,43 @@ export interface SplitNodesOptions<T extends Node> {
 }
 
 export function splitNodes<T extends Node>(
-  editor: EditorCore,
   options: SplitNodesOptions<T> = {},
 ): void {
-  withoutNormalizing(editor, () => {
+  const editor = getCurrentEditorOrFail()
+  withoutNormalizing(() => {
     const { mode = 'lowest', voids = false } = options
     let { match, at = editor.selection, height = 0, always = false } = options
-    if (!match) match = n => isBlockElement(editor, n)
-    if (isRange(at)) at = deleteRange(editor, at)!
+    if (!match) match = n => isBlockElement(n)
+    if (isRange(at)) at = deleteRange(at)!
     if (isPath(at)) {
       const path = at
-      const point = getPoint(editor, path)
-      const parent = getParentNode(editor, path)
+      const point = getPoint(path)
+      const parent = getParentNode(path)
       match = n => n === parent
       height = point.path.length - path.length + 1
       at = point
       always = true
     }
     if (!at) return
-    const beforeRef = getPointRef(editor, at, { affinity: 'backward' })
+    const beforeRef = getPointRef(at, { affinity: 'backward' })
     let afterRef: PointRef | undefined
     try {
-      const [highest] = getNodeEntries(editor, editor, { at, match, mode, voids })
+      const [highest] = getNodeEntries({ at, match, mode, voids })
       if (!highest) return
 
-      const voidMatch = editor.void({ at, mode: 'highest' })
+      const voidMatch = getAboveVoidNodeEntry({ at, mode: 'highest' })
       const nudge = 0
 
       if (!voids && voidMatch) {
         const [voidNode, voidPath] = voidMatch
 
-        if (isInlineElement(editor, voidNode)) {
-          let after = getAfterPoint(editor, voidPath)
+        if (isInlineElement(voidNode)) {
+          let after = getAfterPoint(voidPath)
           if (!after) {
             const text = { text: '' }
             const afterPath = getNextPath(voidPath)
-            insertNodes(editor, text, { at: afterPath, voids })
-            after = getPoint(editor, afterPath)!
+            insertNodes(text, { at: afterPath, voids })
+            after = getPoint(afterPath)!
           }
           at = after
           always = true
@@ -614,30 +627,30 @@ export function splitNodes<T extends Node>(
         always = true
       }
 
-      afterRef = getPointRef(editor, at)
+      afterRef = getPointRef(at)
       const depth = at.path.length - height
       const [, highestPath] = highest
       const lowestPath = at.path.slice(0, depth)
       let position = height === 0 ? at.offset : at.path[depth] + nudge
 
-      for (const [node, path] of getLevelNodes(editor, { at: lowestPath, reverse: true, voids })) {
+      for (const [node, path] of getLevelNodes({ at: lowestPath, reverse: true, voids })) {
         let split = false
 
         if (
           path.length < highestPath.length
           || path.length === 0
-          || (!voids && isVoidElement(editor, node))
+          || (!voids && isVoidElement(node))
         ) {
           break
         }
 
         const point = beforeRef.current!
-        const isEnd = isEndPoint(editor, point, path)
+        const isEnd = isEndPoint(point, path)
 
-        if (always || !beforeRef || !isEdgePoint(editor, point, path)) {
+        if (always || !beforeRef || !isEdgePoint(point, path)) {
           split = true
           const properties = extractNodeProps(node)
-          apply(editor, {
+          apply({
             type: 'split_node',
             path,
             position,
@@ -648,7 +661,7 @@ export function splitNodes<T extends Node>(
       }
 
       if (options.at == null) {
-        select(editor, afterRef.current || getEndPoint(editor, []))
+        select(afterRef.current || getEndPoint([]))
       }
     } finally {
       beforeRef.unref()
@@ -666,40 +679,40 @@ export interface WrapNodesOptions<T extends Node> {
 }
 
 export function wrapNodes<T extends Node>(
-  editor: EditorCore,
   element: Element,
   options: WrapNodesOptions<T>,
 ): void {
-  withoutNormalizing(editor, () => {
+  const editor = getCurrentEditorOrFail()
+  withoutNormalizing(() => {
     const { mode = 'lowest', split = false, voids = false } = options
     let { match, at = editor.selection } = options
     if (!at) return
 
     if (match == null) {
       if (isPath(at)) {
-        const node = getNode(editor, at)
+        const node = getNode(at)
         match = n => n === node
-      } else if (editor.isInline(element)) {
-        match = n => isText(n) || isInlineElement(editor, n)
+      } else if (isInline(element)) {
+        match = n => isText(n) || isInlineElement(n)
       } else {
-        match = n => isBlockElement(editor, n)
+        match = n => isBlockElement(n)
       }
     }
 
     if (split && isRange(at)) {
       const [start, end] = getRangeEdgePoints(at)
-      const rangeRef = getRangeRef(editor, at, { affinity: 'inward' })
-      splitNodes(editor, { at: end, match, voids })
-      splitNodes(editor, { at: start, match, voids })
+      const rangeRef = getRangeRef(at, { affinity: 'inward' })
+      splitNodes({ at: end, match, voids })
+      splitNodes({ at: start, match, voids })
       at = rangeRef.unref()!
-      if (!options.at) select(editor, at)
+      if (!options.at) select(at)
     }
 
     const roots = Array.from(
-      getNodeEntries(editor, editor, {
+      getNodeEntries({
         at,
-        match: editor.isInline(element)
-          ? (n: any) => isBlockElement(editor, n)
+        match: isInline(element)
+          ? (n: any) => isBlockElement(n)
           : (n: any) => isEditor(n),
         mode: 'lowest',
         voids,
@@ -708,13 +721,13 @@ export function wrapNodes<T extends Node>(
 
     for (const [, rootPath] of roots) {
       const a = isRange(at)
-        ? getIntersectionRange(at, getRange(editor, rootPath))
+        ? getIntersectionRange(at, getRange(rootPath))
         : at
 
       if (!a) continue
 
       const matches = Array.from(
-        getNodeEntries(editor, editor, { at: a, match, mode, voids }),
+        getNodeEntries({ at: a, match, mode, voids }),
       )
 
       if (matches.length > 0) {
@@ -729,15 +742,14 @@ export function wrapNodes<T extends Node>(
           ? getParentPath(firstPath)
           : getCommonPath(firstPath, lastPath)
 
-        const range = getRange(editor, firstPath, lastPath)
-        const [commonNode] = getNodeEntryOrFail(editor, commonPath)
+        const range = getRange(firstPath, lastPath)
+        const [commonNode] = getNodeEntryOrFail(commonPath)
         const wrapperPath = getNextPath(lastPath.slice(0, commonPath.length + 1))
         insertNodes(
-          editor,
           { ...element, children: [] },
           { at: wrapperPath, voids },
         )
-        moveNodes(editor, {
+        moveNodes({
           at: range,
           match: n => isAncestor(commonNode) && commonNode.children.includes(n),
           to: wrapperPath.concat(0),
@@ -757,39 +769,39 @@ export interface UnwrapNodesOptions<T extends Node> {
 }
 
 export function unwrapNodes<T extends Node>(
-  editor: EditorCore,
   options: UnwrapNodesOptions<T> = {},
 ): void {
-  withoutNormalizing(editor, () => {
+  const editor = getCurrentEditorOrFail()
+  withoutNormalizing(() => {
     const { mode = 'lowest', split = false, voids = false } = options
     let { at = editor.selection, match } = options
     if (!at) return
 
     if (match == null) {
       if (isPath(at)) {
-        const node = getNodeOrFail(editor, at)
+        const node = getNodeOrFail(at)
         match = n => n === node
       } else {
-        match = n => isBlockElement(editor, n)
+        match = n => isBlockElement(n)
       }
     }
 
-    if (isPath(at)) at = getRange(editor, at)
+    if (isPath(at)) at = getRange(at)
 
-    const rangeRef = isRange(at) ? getRangeRef(editor, at) : null
-    const matches = getNodeEntries(editor, editor, { at, match, mode, voids })
-    const pathRefs = Array.from(matches, ([, p]) => getPathRef(editor, p)).reverse()
+    const rangeRef = isRange(at) ? getRangeRef(at) : null
+    const matches = getNodeEntries({ at, match, mode, voids })
+    const pathRefs = Array.from(matches, ([, p]) => getPathRef(p)).reverse()
 
     for (const pathRef of pathRefs) {
       const path = pathRef.unref()!
-      const node = getNodeOrFail(editor, path)
-      let range = getRange(editor, path)
+      const node = getNodeOrFail(path)
+      let range = getRange(path)
 
       if (split && rangeRef) {
         range = getIntersectionRange(rangeRef.current!, range)!
       }
 
-      liftNodes(editor, {
+      liftNodes({
         at: range,
         match: n => isAncestor(node) && node.children.includes(n),
         voids,
@@ -810,26 +822,26 @@ export interface LiftNodesOptions<T extends Node> {
 }
 
 export function liftNodes<T extends Node>(
-  editor: EditorCore,
   options: LiftNodesOptions<T> = {},
 ) {
-  withoutNormalizing(editor, () => {
+  const editor = getCurrentEditorOrFail()
+  withoutNormalizing(() => {
     const { at = editor.selection, mode = 'lowest', voids = false } = options
     let { match } = options
 
     if (match == null) {
       if (isPath(at)) {
-        const node = getNodeOrFail(editor, at)
+        const node = getNodeOrFail(at)
         match = n => n === node
       } else {
-        match = n => isBlockElement(editor, n)
+        match = n => isBlockElement(n)
       }
     }
 
     if (!at) return
 
-    const matches = getNodeEntries(editor, editor, { at, match, mode, voids })
-    const pathRefs = Array.from(matches, ([, p]) => getPathRef(editor, p))
+    const matches = getNodeEntries({ at, match, mode, voids })
+    const pathRefs = Array.from(matches, ([, p]) => getPathRef(p))
 
     for (const pathRef of pathRefs) {
       const path = pathRef.unref()!
@@ -840,25 +852,25 @@ export function liftNodes<T extends Node>(
         )
       }
 
-      const parentNodeEntry = getNodeEntryOrFail(editor, getParentPath(path))
+      const parentNodeEntry = getNodeEntryOrFail(getParentPath(path))
       const [parent, parentPath] = parentNodeEntry as NodeEntry<Ancestor>
       const index = path[path.length - 1]
       const { length } = parent.children
 
       if (length === 1) {
         const toPath = getNextPath(parentPath)
-        moveNodes(editor, { at: path, to: toPath, voids })
-        removeNodes(editor, { at: parentPath, voids })
+        moveNodes({ at: path, to: toPath, voids })
+        removeNodes({ at: parentPath, voids })
       } else if (index === 0) {
-        moveNodes(editor, { at: path, to: parentPath, voids })
+        moveNodes({ at: path, to: parentPath, voids })
       } else if (index === length - 1) {
         const toPath = getNextPath(parentPath)
-        moveNodes(editor, { at: path, to: toPath, voids })
+        moveNodes({ at: path, to: toPath, voids })
       } else {
         const splitPath = getNextPath(path)
         const toPath = getNextPath(parentPath)
-        splitNodes(editor, { at: splitPath, voids })
-        moveNodes(editor, { at: path, to: toPath, voids })
+        splitNodes({ at: splitPath, voids })
+        moveNodes({ at: path, to: toPath, voids })
       }
     }
   })
@@ -873,25 +885,25 @@ export interface MergeNodesOptions<T extends Node> {
 }
 
 export function mergeNodes<T extends Node>(
-  editor: EditorCore,
   options: MergeNodesOptions<T> = {},
 ) {
-  withoutNormalizing(editor, () => {
+  const editor = getCurrentEditorOrFail()
+  withoutNormalizing(() => {
     let { match, at = editor.selection } = options
     const { hanging = false, voids = false, mode = 'lowest' } = options
     if (!at) return
 
     if (match == null) {
       if (isPath(at)) {
-        const parent = getParentNode(editor, at)
+        const parent = getParentNode(at)
         match = n => parent.children.includes(n)
       } else {
-        match = n => isBlockElement(editor, n)
+        match = n => isBlockElement(n)
       }
     }
 
     if (!hanging && isRange(at)) {
-      at = getUnhangRange(editor, at)
+      at = getUnhangRange(at)
     }
 
     if (isRange(at)) {
@@ -899,51 +911,42 @@ export function mergeNodes<T extends Node>(
         at = at.anchor
       } else {
         const [, end] = getRangeEdgePoints(at)
-        const pointRef = getPointRef(editor, end)
-        deleteNodes(editor, { at })
+        const pointRef = getPointRef(end)
+        deleteNodes({ at })
         at = pointRef.unref()!
-
         if (options.at == null) {
-          select(editor, at)
+          select(at)
         }
       }
     }
 
-    const [current] = getNodeEntries(editor, editor, { at, match, voids, mode })
-    const prev = getPreviousNode(editor, editor, { at, match, voids, mode })
+    const [current] = getNodeEntries({ at, match, voids, mode })
+    const prev = getPreviousNode({ at, match, voids, mode })
 
-    if (!current || !prev) {
-      return
-    }
+    if (!current || !prev) return
 
     const [node, path] = current
     const [prevNode, prevPath] = prev
 
-    if (path.length === 0 || prevPath.length === 0) {
-      return
-    }
+    if (path.length === 0 || prevPath.length === 0) return
 
     const newPath = getNextPath(prevPath)
     const commonPath = getCommonPath(path, prevPath)
     const isPreviousSibling = isSiblingPath(path, prevPath)
-    const levels = Array.from(getLevelNodes(editor, { at: path }), ([n]) => n)
+    const levels = Array.from(getLevelNodes({ at: path }), ([n]) => n)
       .slice(commonPath.length)
       .slice(0, -1)
 
-    // Determine if the merge will leave an ancestor of the path empty as a
-    // result, in which case we'll want to remove it after merging.
-    const emptyAncestor = editor.above({
+    const emptyAncestor = getAboveNodeEntry({
       at: path,
       mode: 'highest',
       match: n => levels.includes(n) && hasSingleChildNest(editor, n),
     })
 
-    const emptyRef = emptyAncestor && getPathRef(editor, emptyAncestor[1])
+    const emptyRef = emptyAncestor && getPathRef(emptyAncestor[1])
     let properties
     let position
 
-    // Ensure that the nodes are equivalent, and figure out what the position
-    // and extra properties of the merge will be.
     if (isText(node) && isText(prevNode)) {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { text, ...rest } = node
@@ -963,11 +966,11 @@ export function mergeNodes<T extends Node>(
     }
 
     if (!isPreviousSibling) {
-      moveNodes(editor, { at: path, to: newPath, voids })
+      moveNodes({ at: path, to: newPath, voids })
     }
 
     if (emptyRef) {
-      removeNodes(editor, { at: emptyRef.current!, voids })
+      removeNodes({ at: emptyRef.current!, voids })
     }
 
     if (
@@ -976,9 +979,9 @@ export function mergeNodes<T extends Node>(
         && prevNode.text === ''
         && prevPath[prevPath.length - 1] !== 0)
     ) {
-      removeNodes(editor, { at: prevPath, voids })
+      removeNodes({ at: prevPath, voids })
     } else {
-      apply(editor, {
+      apply({
         type: 'merge_node',
         path: newPath,
         position,
@@ -1001,33 +1004,33 @@ export interface MoveNodesOptions<T extends Node> {
 }
 
 export function moveNodes<T extends Node>(
-  editor: EditorCore,
   options: MoveNodesOptions<T>,
 ): void {
-  withoutNormalizing(editor, () => {
+  const editor = getCurrentEditorOrFail()
+  withoutNormalizing(() => {
     const { to, at = editor.selection, mode = 'lowest', voids = false } = options
     let { match } = options
     if (!at) return
 
     if (match == null) {
       if (isPath(at)) {
-        const node = getNodeOrFail(editor, at)
+        const node = getNodeOrFail(at)
         match = n => n === node
       } else {
-        match = n => isBlockElement(editor, n)
+        match = n => isBlockElement(n)
       }
     }
 
-    const toRef = getPathRef(editor, to)
-    const targets = getNodeEntries(editor, editor, { at, match, mode, voids })
-    const pathRefs = Array.from(targets, ([, p]) => getPathRef(editor, p))
+    const toRef = getPathRef(to)
+    const targets = getNodeEntries({ at, match, mode, voids })
+    const pathRefs = Array.from(targets, ([, p]) => getPathRef(p))
 
     for (const pathRef of pathRefs) {
       const path = pathRef.unref()!
       const newPath = toRef.current!
 
       if (path.length !== 0) {
-        apply(editor, { type: 'move_node', newPath, path })
+        apply({ type: 'move_node', newPath, path })
       }
 
       if (
@@ -1052,35 +1055,35 @@ export interface RemoveNodesOptions<T extends Node> {
 }
 
 export function removeNodes<T extends Node>(
-  editor: EditorCore,
   options: RemoveNodesOptions<T> = {},
 ): void {
-  withoutNormalizing(editor, () => {
+  const editor = getCurrentEditorOrFail()
+  withoutNormalizing(() => {
     const { hanging = false, voids = false, mode = 'lowest' } = options
     let { at = editor.selection, match } = options
     if (!at) return
 
     if (match == null) {
       if (isPath(at)) {
-        const node = getNode(editor, at)
+        const node = getNode(at)
         match = n => n === node
       } else {
-        match = n => isBlockElement(editor, n)
+        match = n => isBlockElement(n)
       }
     }
 
     if (!hanging && isRange(at)) {
-      at = getUnhangRange(editor, at)
+      at = getUnhangRange(at)
     }
 
-    const depths = getNodeEntries(editor, editor, { at, match, mode, voids })
-    const pathRefs = Array.from(depths, ([, p]) => getPathRef(editor, p))
+    const depths = getNodeEntries({ at, match, mode, voids })
+    const pathRefs = Array.from(depths, ([, p]) => getPathRef(p))
 
     for (const pathRef of pathRefs) {
       const path = pathRef.unref()!
 
       if (path) {
-        apply(editor, { type: 'remove_node', path, node: getNode(editor, path) })
+        apply({ type: 'remove_node', path, node: getNodeOrFail(path) })
       }
     }
   })
@@ -1096,10 +1099,10 @@ export interface DeleteNodeOptions {
 }
 
 export function deleteNodes(
-  editor: EditorCore,
   options: DeleteNodeOptions = {},
 ): void {
-  withoutNormalizing(editor, () => {
+  const editor = getCurrentEditorOrFail()
+  withoutNormalizing(() => {
     const { reverse = false, unit = 'character', distance = 1, voids = false } = options
     let { at = editor.selection, hanging = false } = options
     if (!at) return
@@ -1111,7 +1114,7 @@ export function deleteNodes(
     }
 
     if (isPoint(at)) {
-      const furthestVoid = editor.void({ at, mode: 'highest' })
+      const furthestVoid = getAboveVoidNodeEntry({ at, mode: 'highest' })
 
       if (!voids && furthestVoid) {
         const [, voidPath] = furthestVoid
@@ -1119,15 +1122,15 @@ export function deleteNodes(
       } else {
         const opts = { unit, distance }
         const target = reverse
-          ? getBeforePoint(editor, at, opts) || getStartPoint(editor, [])
-          : getAfterPoint(editor, at, opts) || getEndPoint(editor, [])
+          ? getBeforePoint(at, opts) || getStartPoint([])
+          : getAfterPoint(at, opts) || getEndPoint([])
         at = { anchor: at, focus: target }
         hanging = true
       }
     }
 
     if (isPath(at)) {
-      removeNodes(editor, { at, voids })
+      removeNodes({ at, voids })
       return
     }
 
@@ -1135,21 +1138,21 @@ export function deleteNodes(
 
     if (!hanging) {
       const [, end] = getRangeEdgePoints(at)
-      const endOfDoc = getEndPoint(editor, [])
+      const endOfDoc = getEndPoint([])
 
       if (!isEqualPoint(end, endOfDoc)) {
-        at = getUnhangRange(editor, at, { voids })
+        at = getUnhangRange(at, { voids })
       }
     }
 
     let [start, end] = getRangeEdgePoints(at)
-    const startBlock = editor.above({
-      match: n => isBlockElement(editor, n),
+    const startBlock = getAboveNodeEntry({
+      match: n => isBlockElement(n),
       at: start,
       voids,
     })
-    const endBlock = editor.above({
-      match: n => isBlockElement(editor, n),
+    const endBlock = getAboveNodeEntry({
+      match: n => isBlockElement(n),
       at: end,
       voids,
     })
@@ -1158,14 +1161,14 @@ export function deleteNodes(
     const isSingleText = isEqualPath(start.path, end.path)
     const startVoid = voids
       ? null
-      : editor.void({ at: start, mode: 'highest' })
+      : getAboveVoidNodeEntry({ at: start, mode: 'highest' })
     const endVoid = voids
       ? null
-      : editor.void({ at: end, mode: 'highest' })
+      : getAboveVoidNodeEntry({ at: end, mode: 'highest' })
 
     // If the start or end points are inside an inline void, nudge them out.
     if (startVoid) {
-      const before = getBeforePoint(editor, start)
+      const before = getBeforePoint(start)
 
       if (
         before
@@ -1177,8 +1180,7 @@ export function deleteNodes(
     }
 
     if (endVoid) {
-      const after = getAfterPoint(editor, end)
-
+      const after = getAfterPoint(end)
       if (after && endBlock && isAncestorPath(endBlock[1], after.path)) {
         end = after
       }
@@ -1187,15 +1189,11 @@ export function deleteNodes(
     const matches: NodeEntry[] = []
     let lastPath: Path | undefined
 
-    for (const entry of getNodeEntries(editor, editor, { at, voids })) {
+    for (const entry of getNodeEntries({ at, voids })) {
       const [node, path] = entry
-
-      if (lastPath && comparePath(path, lastPath) === 0) {
-        continue
-      }
-
+      if (lastPath && comparePath(path, lastPath) === 0) continue
       if (
-        (!voids && isVoidElement(editor, node))
+        (!voids && isVoidElement(node))
         || (!isCommonPath(path, start.path) && !isCommonPath(path, end.path))
       ) {
         matches.push(entry)
@@ -1203,37 +1201,37 @@ export function deleteNodes(
       }
     }
 
-    const pathRefs = Array.from(matches, ([, p]) => getPathRef(editor, p))
-    const startRef = getPointRef(editor, start)
-    const endRef = getPointRef(editor, end)
+    const pathRefs = Array.from(matches, ([, p]) => getPathRef(p))
+    const startRef = getPointRef(start)
+    const endRef = getPointRef(end)
 
     let removedText = ''
 
     if (!isSingleText && !startVoid) {
       const point = startRef.current!
-      const [node] = getTextEntryOrFail(editor, point)
+      const [node] = getTextEntryOrFail(point)
       const { path } = point
       const { offset } = start
       const text = node.text.slice(offset)
       if (text.length > 0) {
-        apply(editor, { type: 'remove_text', path, offset, text })
+        apply({ type: 'remove_text', path, offset, text })
         removedText = text
       }
     }
 
     for (const pathRef of pathRefs) {
       const path = pathRef.unref()!
-      removeNodes(editor, { at: path, voids })
+      removeNodes({ at: path, voids })
     }
 
     if (!endVoid) {
       const point = endRef.current!
-      const [node] = getTextEntryOrFail(editor, point)
+      const [node] = getTextEntryOrFail(point)
       const { path } = point
       const offset = isSingleText ? start.offset : 0
       const text = node.text.slice(offset, end.offset)
       if (text.length > 0) {
-        apply(editor, { type: 'remove_text', path, offset, text })
+        apply({ type: 'remove_text', path, offset, text })
         removedText = text
       }
     }
@@ -1244,7 +1242,7 @@ export function deleteNodes(
       && endRef.current
       && startRef.current
     ) {
-      mergeNodes(editor, {
+      mergeNodes({
         at: endRef.current,
         hanging: true,
         voids,
@@ -1259,7 +1257,6 @@ export function deleteNodes(
       && removedText.match(/[\u0E00-\u0E7F]+/)
     ) {
       insertText(
-        editor,
         removedText.slice(0, removedText.length - distance),
       )
     }
@@ -1269,7 +1266,7 @@ export function deleteNodes(
     const point = reverse ? startUnref || endUnref : endUnref || startUnref
 
     if (options.at == null && point) {
-      select(editor, point)
+      select(point)
     }
   })
 }
@@ -1279,7 +1276,7 @@ export function deleteBackward(editor: EditorCore, options: {
 } = {}): void {
   const { unit = 'character' } = options
   if (editor.selection && isCollapsedRange(editor.selection)) {
-    deleteNodes(editor, { unit, reverse: true })
+    deleteNodes({ unit, reverse: true })
   }
 }
 
@@ -1288,7 +1285,7 @@ export function deleteForward(editor: EditorCore, options: {
 } = {}): void {
   const { unit = 'character' } = options
   if (editor.selection && isCollapsedRange(editor.selection)) {
-    deleteNodes(editor, { unit })
+    deleteNodes({ unit })
   }
 }
 
@@ -1297,7 +1294,7 @@ export function deleteFragment(editor: EditorCore, options: {
 } = {}): void {
   const { direction } = options
   if (editor.selection && isExpandedRange(editor.selection)) {
-    deleteNodes(editor, { reverse: direction === 'backward' })
+    deleteNodes({ reverse: direction === 'backward' })
   }
 }
 
@@ -1313,11 +1310,11 @@ export interface SetNodesOptions<T extends Node> {
 }
 
 export function setNodes<T extends Node>(
-  editor: EditorCore,
   props: Partial<Node>,
   options: SetNodesOptions<T> = {},
 ) {
-  withoutNormalizing(editor, () => {
+  const editor = getCurrentEditorOrFail()
+  withoutNormalizing(() => {
     const { merge } = options
     const { hanging = false, mode = 'lowest', split = false, voids = false } = options
     let { match, at = editor.selection, compare } = options
@@ -1325,31 +1322,30 @@ export function setNodes<T extends Node>(
 
     if (match == null) {
       match = isPath(at)
-        ? n => n === getNodeOrFail(editor, at as Path)
-        : n => isBlockElement(editor, n)
+        ? n => n === getNodeOrFail(at as Path)
+        : n => isBlockElement(n)
     }
 
     if (!hanging && isRange(at)) {
-      at = getUnhangRange(editor, at)
+      at = getUnhangRange(at)
     }
 
     if (split && isRange(at)) {
-      if (isCollapsedRange(at) && getTextOrFail(editor, at.anchor.path).text.length > 0) return
-      const rangeRef = getRangeRef(editor, at, { affinity: 'inward' })
+      if (isCollapsedRange(at) && getTextOrFail(at.anchor.path).text.length > 0) return
+      const rangeRef = getRangeRef(at, { affinity: 'inward' })
       const [start, end] = getRangeEdgePoints(at)
       const splitMode = mode === 'lowest' ? 'lowest' : 'highest'
-      splitNodes(editor, { at: end, match, mode: splitMode, voids, always: !isEndPoint(editor, end, end.path) })
-      splitNodes(editor, { at: start, match, mode: splitMode, voids, always: !isStartPoint(editor, start, start.path) })
+      splitNodes({ at: end, match, mode: splitMode, voids, always: !isEndPoint(end, end.path) })
+      splitNodes({ at: start, match, mode: splitMode, voids, always: !isStartPoint(start, start.path) })
       at = rangeRef.unref()!
-
-      if (options.at == null) select(editor, at)
+      if (options.at == null) select(at)
     }
 
     if (!compare) {
       compare = (prop, nodeProp) => prop !== nodeProp
     }
 
-    for (const [node, path] of getNodeEntries(editor, editor, { at, match, mode, voids })) {
+    for (const [node, path] of getNodeEntries({ at, match, mode, voids })) {
       const properties: Partial<Node> = {}
       const newProperties: Partial<Node> = {}
       if (path.length === 0) continue
@@ -1369,7 +1365,7 @@ export function setNodes<T extends Node>(
       }
 
       if (hasChanges) {
-        apply(editor, {
+        apply({
           type: 'set_node',
           path,
           properties,

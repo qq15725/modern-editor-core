@@ -1,10 +1,9 @@
+import { getCurrentEditorOrFail } from './editor-core'
 import { getFirstChildNodeEntry, getLastChildNodeEntry } from './node'
 import { isPoint } from './point'
 import { getRangeEndPoint, getRangeStartPoint, isRange } from './range'
 import type { Location } from './location'
-import type { Ancestor } from './ancestor'
 import type { Operation } from './operation'
-import type { EditorCore } from './types'
 
 export type Path = number[]
 export interface PathRef {
@@ -62,36 +61,6 @@ export function isCommonPath(path: Path, another: Path): boolean {
     && comparePath(path, another) === 0
 }
 
-export interface PathOptions {
-  depth?: number
-  edge?: 'start' | 'end'
-}
-
-export function getPath(at: Location, options?: PathOptions): Path {
-  const { depth, edge } = options ?? {}
-  if (isPoint(at)) {
-    at = at.path
-  } else if (isRange(at)) {
-    at = edge === 'start'
-      ? getRangeStartPoint(at).path
-      : edge === 'end'
-        ? getRangeEndPoint(at).path
-        : getCommonPath(at.anchor.path, at.focus.path)
-  }
-  if (isPath(at) && depth != null) {
-    at = at.slice(0, depth)
-  }
-  return at as Path
-}
-
-export function getFirstChildPath(root: Ancestor, path: Path): Path {
-  return getFirstChildNodeEntry(root, path)[1]
-}
-
-export function getLastChildPath(root: Ancestor, path: Path): Path {
-  return getLastChildNodeEntry(root, path)[1]
-}
-
 export function hasPreviousPath(path: Path): boolean {
   return path[path.length - 1] > 0
 }
@@ -141,11 +110,44 @@ export function getAncestorPaths(path: Path, options?: { reverse?: boolean }): P
   }
 }
 
+export interface PathOptions {
+  depth?: number
+  edge?: 'start' | 'end'
+}
+
+export function getPath(at: Location, options?: PathOptions): Path {
+  const { depth, edge } = options ?? {}
+  if (isPoint(at)) {
+    at = at.path
+  } else if (isRange(at)) {
+    at = edge === 'start'
+      ? getRangeStartPoint(at).path
+      : edge === 'end'
+        ? getRangeEndPoint(at).path
+        : getCommonPath(at.anchor.path, at.focus.path)
+  }
+  if (isPath(at) && depth != null) {
+    at = at.slice(0, depth)
+  }
+  return at as Path
+}
+
+export function getFirstChildPath(path: Path): Path {
+  return getFirstChildNodeEntry(path)[1]
+}
+
+export function getLastChildPath(path: Path): Path {
+  return getLastChildNodeEntry(path)[1]
+}
 export interface PathRefOptions {
   affinity?: 'forward' | 'backward' | null
 }
 
-export function getPathRef(editor: EditorCore, path: Path, options: PathRefOptions = {}): PathRef {
+export function getPathRef(
+  path: Path,
+  options: PathRefOptions = {},
+): PathRef {
+  const editor = getCurrentEditorOrFail()
   const { affinity = 'forward' } = options
   const ref: PathRef = {
     current: path,

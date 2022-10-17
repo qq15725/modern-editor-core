@@ -1,13 +1,12 @@
-import { isElement } from './element'
+import { getCurrentEditorOrFail, isInline, isVoid } from './editor-core'
+import { hasInlines, isElement } from './element'
 import { getFirstChildNodeEntry, getLastChildNodeEntry, getNodeEntries } from './node'
 import { getRange, getRangeEdgePoints, getRangeEndPoint, getRangeStartPoint, isRange } from './range'
 import { getTextContent, isText } from './text'
 import { getCharacterDistance, getWordDistance, isPlainObject, splitByCharacterDistance } from './utils'
 import { comparePath, isAncestorPath, isEqualPath, isPath, transformPath } from './path'
 import type { Operation } from './operation'
-import type { EditorCore } from './types'
 import type { Location } from './location'
-import type { Ancestor } from './ancestor'
 import type { Path } from './path'
 
 export interface Point {
@@ -50,29 +49,29 @@ export function isAfterPoint(point: Point, another: Point): boolean {
   return comparePoint(point, another) === 1
 }
 
-export function isStartPoint(root: Ancestor, point: Point, at: Location): boolean {
+export function isStartPoint(point: Point, at: Location): boolean {
   if (point.offset !== 0) return false
-  return isEqualPoint(point, getStartPoint(root, at))
+  return isEqualPoint(point, getStartPoint(at))
 }
 
-export function isEndPoint(root: Ancestor, point: Point, at: Location): boolean {
-  return isEqualPoint(point, getEndPoint(root, at))
+export function isEndPoint(point: Point, at: Location): boolean {
+  return isEqualPoint(point, getEndPoint(at))
 }
 
-export function isEdgePoint(root: Ancestor, point: Point, at: Location): boolean {
-  return isStartPoint(root, point, at) || isEndPoint(root, point, at)
+export function isEdgePoint(point: Point, at: Location): boolean {
+  return isStartPoint(point, at) || isEndPoint(point, at)
 }
 
 export interface PointOptions {
   edge?: 'start' | 'end'
 }
 
-export function getPoint(root: Ancestor, at: Location, options?: PointOptions): Point {
+export function getPoint(at: Location, options?: PointOptions): Point {
   const { edge = 'start' } = options || {}
   if (isPath(at)) {
     const [node, path] = edge === 'end'
-      ? getLastChildNodeEntry(root, at)
-      : getFirstChildNodeEntry(root, at)
+      ? getLastChildNodeEntry(at)
+      : getFirstChildNodeEntry(at)
     if (!isText(node)) throw new Error(`Cannot get the ${ edge } point in the node at path [${ at }] because it has no ${ edge } text node.`)
     at = {
       path,
@@ -86,12 +85,12 @@ export function getPoint(root: Ancestor, at: Location, options?: PointOptions): 
   return at
 }
 
-export function getStartPoint(root: Ancestor, at: Location = []): Point {
-  return getPoint(root, at, { edge: 'start' })
+export function getStartPoint(at: Location = []): Point {
+  return getPoint(at, { edge: 'start' })
 }
 
-export function getEndPoint(root: Ancestor, at: Location = []): Point {
-  return getPoint(root, at, { edge: 'end' })
+export function getEndPoint(at: Location = []): Point {
+  return getPoint(at, { edge: 'end' })
 }
 
 export interface BeforeAfterPointOptions {
@@ -100,14 +99,17 @@ export interface BeforeAfterPointOptions {
   voids?: boolean
 }
 
-export function getBeforePoint(editor: EditorCore, at: Location, options: BeforeAfterPointOptions = {}): Point | undefined {
-  const anchor = getStartPoint(editor)
-  const focus = getStartPoint(editor, at)
+export function getBeforePoint(
+  at: Location,
+  options: BeforeAfterPointOptions = {},
+): Point | undefined {
+  const anchor = getStartPoint()
+  const focus = getStartPoint(at)
   const range = { anchor, focus }
   const { distance = 1 } = options
   let d = 0
   let target
-  for (const p of getPoints(editor, { ...options, at: range, reverse: true })) {
+  for (const p of getPoints({ ...options, at: range, reverse: true })) {
     if (d > distance) break
     if (d !== 0) target = p
     d++
@@ -115,14 +117,17 @@ export function getBeforePoint(editor: EditorCore, at: Location, options: Before
   return target
 }
 
-export function getAfterPoint(editor: EditorCore, at: Location, options: BeforeAfterPointOptions = {}): Point | undefined {
-  const anchor = getEndPoint(editor, at)
-  const focus = getEndPoint(editor)
+export function getAfterPoint(
+  at: Location,
+  options: BeforeAfterPointOptions = {},
+): Point | undefined {
+  const anchor = getEndPoint(at)
+  const focus = getEndPoint()
   const range = { anchor, focus }
   const { distance = 1 } = options
   let d = 0
   let target
-  for (const p of getPoints(editor, { ...options, at: range })) {
+  for (const p of getPoints({ ...options, at: range })) {
     if (d > distance) break
     if (d !== 0) target = p
     d++
@@ -137,12 +142,14 @@ export interface PointsOptions {
   voids?: boolean
 }
 
-export function *getPoints(editor: EditorCore, options?: PointsOptions): Generator<Point, void, undefined> {
+export function *getPoints(
+  options?: PointsOptions,
+): Generator<Point, void, undefined> {
   const { unit = 'offset', reverse = false, voids = false } = options ?? {}
   const { at } = options ?? {}
   if (!at) return
 
-  const range = getRange(editor, at)
+  const range = getRange(at)
   const [start, end] = getRangeEdgePoints(range)
   const first = reverse ? end : start
   let isNewBlock = false
@@ -151,21 +158,21 @@ export function *getPoints(editor: EditorCore, options?: PointsOptions): Generat
   let leafTextRemaining = 0
   let leafTextOffset = 0
 
-  for (const [node, path] of getNodeEntries(editor, editor, { at: at!, reverse, voids })) {
+  for (const [node, path] of getNodeEntries({ at: at!, reverse, voids })) {
     if (isElement(node)) {
-      if (!voids && editor.isVoid(node)) {
-        yield getStartPoint(editor, path)
+      if (!voids && isVoid(node)) {
+        yield getStartPoint(path)
         continue
       }
-      if (editor.isInline(node)) continue
-      if (editor.hasInlines(node)) {
+      if (isInline(node)) continue
+      if (hasInlines(node)) {
         const e = isAncestorPath(path, end.path)
           ? end
-          : getEndPoint(editor, path)
+          : getEndPoint(path)
         const s = isAncestorPath(path, start.path)
           ? start
-          : getStartPoint(editor, path)
-        blockText = getTextContent(editor, { anchor: s, focus: e }, { voids })
+          : getStartPoint(path)
+        blockText = getTextContent({ anchor: s, focus: e }, { voids })
         isNewBlock = true
       }
     }
@@ -226,7 +233,11 @@ export interface PointRefOptions {
   affinity?: 'forward' | 'backward' | null
 }
 
-export function getPointRef(editor: EditorCore, point: Point, options: PointRefOptions = {}): PointRef {
+export function getPointRef(
+  point: Point,
+  options: PointRefOptions = {},
+): PointRef {
+  const editor = getCurrentEditorOrFail()
   const { affinity = 'forward' } = options
   const ref: PointRef = {
     current: point,

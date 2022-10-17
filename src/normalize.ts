@@ -1,8 +1,77 @@
-import { isElement } from './element'
-import { getNodeEntries, getNodeEntryOrFail, hasNode } from './node'
-import type { EditorCore } from './types'
+import { getCurrentEditorOrFail, isEditor } from './editor-core'
+import { isElement, isInlineElement } from './element'
+import {
+  getNodeEntries,
+  getNodeEntryOrFail,
+  getNodeOrFail,
+  hasNode,
+  insertNodes,
+  mergeNodes,
+  removeNodes,
+} from './node'
+import { isEqualText, isText } from './text'
+import type { NodeEntry } from './node'
+import type { Descendant } from './descendant'
 
-export function normalize(editor: EditorCore, options: { force?: boolean } = {}): void {
+export function normalizeNode(entry: NodeEntry) {
+  const editor = getCurrentEditorOrFail()
+  const [node, path] = entry
+  if (isText(node)) return
+  if (isElement(node) && node.children.length === 0) {
+    insertNodes({ text: '' }, { at: path.concat(0), voids: true })
+    return
+  }
+  const shouldHaveInlines = isEditor(node)
+    ? false
+    : isElement(node)
+    && (editor.isInline(node)
+      || node.children.length === 0
+      || isText(node.children[0])
+      || isInlineElement(node.children[0]))
+  let n = 0
+  for (let i = 0; i < node.children.length; i++, n++) {
+    const currentNode = getNodeOrFail(editor, path)
+    if (isText(currentNode)) continue
+    const child = node.children[i] as Descendant
+    const prev = currentNode.children[n - 1] as Descendant
+    const isLast = i === node.children.length - 1
+    const isInlineOrText
+      = isText(child)
+      || (isElement(child) && editor.isInline(child))
+    if (isInlineOrText !== shouldHaveInlines) {
+      removeNodes({ at: path.concat(n), voids: true })
+      n--
+    } else if (isElement(child)) {
+      if (editor.isInline(child)) {
+        if (prev == null || !isText(prev)) {
+          const newChild = { text: '' }
+          insertNodes(newChild, { at: path.concat(n), voids: true })
+          n++
+        } else if (isLast) {
+          const newChild = { text: '' }
+          insertNodes(newChild, { at: path.concat(n + 1), voids: true })
+          n++
+        }
+      }
+    } else {
+      if (prev != null && isText(prev)) {
+        if (isEqualText(child, prev, { loose: true })) {
+          mergeNodes({ at: path.concat(n), voids: true })
+          n--
+        } else if (prev.text === '') {
+          removeNodes({ at: path.concat(n - 1), voids: true })
+          n--
+        } else if (child.text === '') {
+          removeNodes({ at: path.concat(n), voids: true })
+          n--
+        }
+      }
+    }
+  }
+}
+
+export function normalize(options: { force?: boolean } = {}): void {
+  const editor = getCurrentEditorOrFail()
   if (!editor.isNormalizing) return
   const { force = false } = options
   const popDirtyPath = () => {
@@ -12,16 +81,16 @@ export function normalize(editor: EditorCore, options: { force?: boolean } = {})
     return path
   }
   if (force) {
-    editor.dirtyPaths = Array.from(getNodeEntries(editor, editor), ([, p]) => p)
+    editor.dirtyPaths = Array.from(getNodeEntries(editor), ([, p]) => p)
     editor.dirtyPathKeys = new Set(editor.dirtyPaths.map(p => p.join(',')))
   }
   if (editor.dirtyPaths.length === 0) return
-  withoutNormalizing(editor, () => {
+  withoutNormalizing(() => {
     for (const dirtyPath of editor.dirtyPaths) {
       if (hasNode(editor, dirtyPath)) {
         const entry = getNodeEntryOrFail(editor, dirtyPath)
         const node = entry[0]
-        if (isElement(node) && node.children.length === 0) editor.normalizeNode(entry)
+        if (isElement(node) && node.children.length === 0) normalizeNode(entry)
       }
     }
     const max = editor.dirtyPaths.length * 42
@@ -32,14 +101,15 @@ export function normalize(editor: EditorCore, options: { force?: boolean } = {})
       }
       const dirtyPath = popDirtyPath()
       if (hasNode(editor, dirtyPath)) {
-        editor.normalizeNode(getNodeEntryOrFail(editor, dirtyPath))
+        normalizeNode(getNodeEntryOrFail(editor, dirtyPath))
       }
       m++
     }
   })
 }
 
-export function withoutNormalizing(editor: EditorCore, fn: () => void): void {
+export function withoutNormalizing(fn: () => void): void {
+  const editor = getCurrentEditorOrFail()
   const value = editor.isNormalizing
   editor.isNormalizing = false
   try {
@@ -47,5 +117,5 @@ export function withoutNormalizing(editor: EditorCore, fn: () => void): void {
   } finally {
     editor.isNormalizing = value
   }
-  normalize(editor)
+  normalize()
 }

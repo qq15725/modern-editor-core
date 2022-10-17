@@ -1,6 +1,8 @@
 import { createDraft, finishDraft, isDraft } from 'immer'
+import { getCurrentEditorOrFail } from './editor-core'
 import { getNode, getNodeOrFail, getParentNode } from './node'
 import { normalize } from './normalize'
+import { getDirtyPaths } from './operation'
 import {
   comparePath,
   getCommonPath,
@@ -20,10 +22,11 @@ import type { Text } from './text'
 import type { Range } from './range'
 import type { Ancestor } from './ancestor'
 import type { Operation } from './operation'
-import type { EditorCore } from './types'
+import type { EditorCore } from './editor-core'
 import type { Path } from './Path'
 
-export function apply(editor: EditorCore, op: Operation): void {
+export function apply(op: Operation): void {
+  const editor = getCurrentEditorOrFail()
   for (const ref of editor.pathRefs) {
     const { current, affinity } = ref
     if (current) {
@@ -68,20 +71,20 @@ export function apply(editor: EditorCore, op: Operation): void {
 
   if (['insert_node', 'remove_node', 'merge_node', 'split_node', 'move_node'].includes(op.type)) {
     dirtyPaths = []
-    dirtyPathKeys = new Set()
+    dirtyPathKeys = new Set<string>()
     for (const path of oldDirtyPaths) add(transformPath(path, op))
   } else {
     dirtyPaths = oldDirtyPaths
     dirtyPathKeys = oldDirtyPathKeys
   }
 
-  for (const path of editor.getDirtyPaths(op)) add(path)
+  for (const path of getDirtyPaths(op)) add(path)
 
   editor.dirtyPaths = dirtyPaths
   editor.dirtyPathKeys = dirtyPathKeys
   applyTransform(editor, op)
   editor.operations.push(op)
-  normalize(editor)
+  normalize()
 
   if (!editor.applying) {
     editor.applying = true
@@ -129,7 +132,7 @@ export function applyToDraft(editor: EditorCore, selection: Range | undefined, o
   switch (op.type) {
     case 'insert_node': {
       const { path, node } = op
-      const parent = getParentNode(editor, path)
+      const parent = getParentNode(path)
       const index = path[path.length - 1]
       if (index > parent.children.length) throw new Error(`Cannot apply an "insert_node" operation at path [${ path }] because the destination is past the end of the node.`)
       parent.children.splice(index, 0, node)
@@ -143,7 +146,7 @@ export function applyToDraft(editor: EditorCore, selection: Range | undefined, o
     case 'insert_text': {
       const { path, offset, text } = op
       if (text.length === 0) break
-      const node = getTextOrFail(editor, path)
+      const node = getTextOrFail(path)
       const before = node.text.slice(0, offset)
       const after = node.text.slice(offset)
       node.text = before + text + after
@@ -156,10 +159,10 @@ export function applyToDraft(editor: EditorCore, selection: Range | undefined, o
     }
     case 'merge_node': {
       const { path } = op
-      const node = getNodeOrFail(editor, path)
+      const node = getNodeOrFail(path)
       const prevPath = getPreviousPath(path)
-      const prev = getNodeOrFail(editor, prevPath)
-      const parent = getParentNode(editor, path)
+      const prev = getNodeOrFail(prevPath)
+      const parent = getParentNode(path)
       const index = path[path.length - 1]
       if (isText(node) && isText(prev)) {
         prev.text += node.text
@@ -181,12 +184,12 @@ export function applyToDraft(editor: EditorCore, selection: Range | undefined, o
       if (isAncestorPath(path, newPath)) {
         throw new Error(`Cannot move a path [${ path }] to new path [${ newPath }] because the destination is inside itself.`)
       }
-      const node = getNodeOrFail(editor, path)
-      const parent = getParentNode(editor, path)
+      const node = getNodeOrFail(path)
+      const parent = getParentNode(path)
       const index = path[path.length - 1]
       parent.children.splice(index, 1)
       const truePath = transformPath(path, op)!
-      const newParent = getNode(editor, getParentPath(truePath)) as Ancestor
+      const newParent = getNode(getParentPath(truePath)) as Ancestor
       const newIndex = truePath[truePath.length - 1]
       newParent.children.splice(newIndex, 0, node)
       if (selection) {
@@ -199,7 +202,7 @@ export function applyToDraft(editor: EditorCore, selection: Range | undefined, o
     case 'remove_node': {
       const { path } = op
       const index = path[path.length - 1]
-      const parent = getParentNode(editor, path)
+      const parent = getParentNode(path)
       parent.children.splice(index, 1)
       if (selection) {
         for (const [point, key] of getRangePoints(selection)) {
@@ -209,7 +212,7 @@ export function applyToDraft(editor: EditorCore, selection: Range | undefined, o
           } else {
             let prev: NodeEntry<Text> | undefined
             let next: NodeEntry<Text> | undefined
-            for (const [n, p] of getTextEntries(editor)) {
+            for (const [n, p] of getTextEntries()) {
               if (comparePath(p, path) === -1) {
                 prev = [n, p]
               } else {
@@ -244,7 +247,7 @@ export function applyToDraft(editor: EditorCore, selection: Range | undefined, o
     case 'remove_text': {
       const { path, offset, text } = op
       if (text.length === 0) break
-      const node = getTextOrFail(editor, path)
+      const node = getTextOrFail(path)
       const before = node.text.slice(0, offset)
       const after = node.text.slice(offset + text.length)
       node.text = before + after
@@ -258,7 +261,7 @@ export function applyToDraft(editor: EditorCore, selection: Range | undefined, o
     case 'set_node': {
       const { path, properties, newProperties } = op
       if (path.length === 0) throw new Error('Cannot set properties on the root node!')
-      const node = getNodeOrFail(editor, path)
+      const node = getNodeOrFail(path)
       for (const key in newProperties) {
         if (key === 'children' || key === 'text') throw new Error(`Cannot set the "${ key }" property of nodes!`)
         const value = newProperties[key as keyof typeof newProperties]
@@ -300,8 +303,8 @@ export function applyToDraft(editor: EditorCore, selection: Range | undefined, o
     case 'split_node': {
       const { path, position, properties } = op
       if (path.length === 0) throw new Error(`Cannot apply a "split_node" operation at path [${ path }] because the root node cannot be split.`)
-      const node = getNodeOrFail(editor, path)
-      const parent = getParentNode(editor, path)
+      const node = getNodeOrFail(path)
+      const parent = getParentNode(path)
       const index = path[path.length - 1]
       let newNode: Descendant
       if (isText(node)) {

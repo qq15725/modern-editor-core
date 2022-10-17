@@ -1,30 +1,118 @@
-import { isElement, isInlineElement, isVoidElement } from './element'
-import { useEditorListener } from './listener'
-import {
-  getLevelNodes,
-  getNodeEntries,
-  getNodeOrFail,
-  insertNodes,
-  isNodes, mergeNodes, removeNodes,
-  splitNodes,
-} from './node'
-import {
-  getAncestorPaths,
-  getLevelPaths,
-  getNextPath,
-  getPath,
-  getPreviousPath,
-  isEqualPath,
-  transformPath,
-} from './path'
-import { isEqualText, isText } from './text'
+import { isNodes, splitNodes } from './node'
+import { isText } from './text'
 import { isPlainObject } from './utils'
+import type { Operation } from './operation'
+import type { Element } from './element'
 import type { Node } from './node'
 import type { PointRef } from './point'
 import type { Path, PathRef } from './path'
 import type { Range, RangeRef } from './range'
-import type { Descendant } from './descendant'
-import type { EditorCore } from './types'
+
+export interface EditorCoreListener {
+  (...args: any[]): void
+}
+
+let activeEditor: EditorCore | undefined
+
+export class EditorCore {
+  public pathRefs = new Set<PathRef>()
+  public pointRefs = new Set<PointRef>()
+  public rangeRefs = new Set<RangeRef>()
+  public dirtyPaths: Path[] = []
+  public dirtyPathKeys = new Set<string>()
+  public isNormalizing = true
+  public operations: Operation[] = []
+  public applying = false
+  public selection: Range | undefined
+  public children: Node[]
+  protected listeners = new Map<string, EditorCoreListener[]>()
+
+  public constructor(children: Node[] = [], selection?: Range) {
+    this.children = children
+    this.selection = selection
+  }
+
+  public run<T>(fn: () => T): T | undefined {
+    const currentEditor = activeEditor
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
+      activeEditor = this
+      return fn()
+    } finally {
+      activeEditor = currentEditor
+    }
+  }
+
+  public isBlock(value: Element): boolean {
+    return !this.isInline(value)
+  }
+
+  public isInline(_value: Element): boolean {
+    return false
+  }
+
+  public isVoid(_value: Element): boolean {
+    return false
+  }
+
+  public isEmpty(element: Element): boolean {
+    const { children } = element
+    const first = children[0]
+    return (
+      children.length === 0
+      || (
+        children.length === 1
+        && isText(first)
+        && first.text === ''
+        && !this.isVoid(element)
+      )
+    )
+  }
+
+  public insertBreak(): void {
+    splitNodes({ always: true })
+  }
+
+  public insertSoftBreak(): void {
+    splitNodes({ always: true })
+  }
+
+  public emit(type: string, ...args: any[]): void {
+    this.listeners.get(type)?.forEach(listener => {
+      try {
+        listener.call(this, ...args)
+      } catch (err: any) {
+        console.error(err)
+      }
+    })
+  }
+
+  public on(type: string, listener: EditorCoreListener): void {
+    const listeners = this.listeners.get(type) || []
+    listeners.push(listener)
+    this.listeners.set(type, listeners)
+  }
+
+  public off(type: string, listener: EditorCoreListener): void {
+    const listeners = this.listeners.get(type) || []
+    listeners.splice(listeners.findIndex(v => v === listener), 1)
+    if (!listeners.length) this.listeners.delete(type)
+  }
+}
+
+export function getCurrentEditor(): EditorCore | undefined {
+  return activeEditor
+}
+
+export function getCurrentEditorOrFail(): EditorCore {
+  if (!activeEditor) {
+    throw new Error(
+      'getCurrentEditorOrFail() is called when there is no active editor'
+      + ' to be associated with.',
+    )
+  }
+  return activeEditor
+}
 
 export function isEditor(value: any): value is EditorCore {
   return Boolean(
@@ -34,184 +122,14 @@ export function isEditor(value: any): value is EditorCore {
   )
 }
 
-export function createEditorCore(children: Node[] = [], selection?: Range): EditorCore {
-  return {
-    ...useEditorListener(),
-    __editor__: true,
-    pathRefs: new Set<PathRef>(),
-    pointRefs: new Set<PointRef>(),
-    rangeRefs: new Set<RangeRef>(),
-    dirtyPaths: [],
-    dirtyPathKeys: new Set(),
-    isNormalizing: true,
-    operations: [],
-    applying: false,
-    selection,
-    children,
-    isBlock(value) {
-      return !this.isInline(value)
-    },
-    isInline: () => false,
-    isVoid: () => false,
-    isEmpty(element): boolean {
-      const { children } = element
-      const first = children[0]
-      return (
-        children.length === 0
-        || (
-          children.length === 1
-          && isText(first)
-          && first.text === ''
-          && !this.isVoid(element)
-        )
-      )
-    },
-    hasInlines(element) {
-      return element.children.some(n => isText(n) || isInlineElement(this, n))
-    },
-    void(options = {}) {
-      return this.above({ ...options, match: n => isVoidElement(this, n) })
-    },
-    above(options = {}) {
-      const { voids = false, mode = 'lowest', at = this.selection, match } = options
-      if (!at) return undefined
-      const path = getPath(at)
-      const reverse = mode === 'lowest'
-      for (const [n, p] of getLevelNodes(this, { at: path, voids, match, reverse })) {
-        if (!isText(n) && !isEqualPath(path, p)) {
-          return [n, p]
-        }
-      }
-      return undefined
-    },
-    insertBreak() {
-      splitNodes(this, { always: true })
-    },
-    insertSoftBreak() {
-      splitNodes(this, { always: true })
-    },
-    normalizeNode(entry) {
-      const [node, path] = entry
-      if (isText(node)) return
-      if (isElement(node) && node.children.length === 0) {
-        insertNodes(this, { text: '' }, { at: path.concat(0), voids: true })
-        return
-      }
-      const shouldHaveInlines = isEditor(node)
-        ? false
-        : isElement(node)
-        && (this.isInline(node)
-          || node.children.length === 0
-          || isText(node.children[0])
-          || isInlineElement(this, node.children[0]))
-      let n = 0
-      for (let i = 0; i < node.children.length; i++, n++) {
-        const currentNode = getNodeOrFail(this, path)
-        if (isText(currentNode)) continue
-        const child = node.children[i] as Descendant
-        const prev = currentNode.children[n - 1] as Descendant
-        const isLast = i === node.children.length - 1
-        const isInlineOrText
-          = isText(child)
-          || (isElement(child) && this.isInline(child))
-        if (isInlineOrText !== shouldHaveInlines) {
-          removeNodes(this, { at: path.concat(n), voids: true })
-          n--
-        } else if (isElement(child)) {
-          if (this.isInline(child)) {
-            if (prev == null || !isText(prev)) {
-              const newChild = { text: '' }
-              insertNodes(this, newChild, { at: path.concat(n), voids: true })
-              n++
-            } else if (isLast) {
-              const newChild = { text: '' }
-              insertNodes(this, newChild, { at: path.concat(n + 1), voids: true })
-              n++
-            }
-          }
-        } else {
-          if (prev != null && isText(prev)) {
-            if (isEqualText(child, prev, { loose: true })) {
-              mergeNodes(this, { at: path.concat(n), voids: true })
-              n--
-            } else if (prev.text === '') {
-              removeNodes(this, { at: path.concat(n - 1), voids: true })
-              n--
-            } else if (child.text === '') {
-              removeNodes(this, { at: path.concat(n), voids: true })
-              n--
-            }
-          }
-        }
-      }
-    },
-    getDirtyPaths(op) {
-      switch (op.type) {
-        case 'insert_text':
-        case 'remove_text':
-        case 'set_node': {
-          return getLevelPaths(op.path)
-        }
+export function isBlock(value: Element): boolean {
+  return getCurrentEditorOrFail().isBlock(value)
+}
 
-        case 'insert_node': {
-          const { node, path } = op
-          const levels = getLevelPaths(path)
-          const descendants = isText(node)
-            ? []
-            : Array.from(getNodeEntries(this, node), ([, p]) => path.concat(p))
+export function isInline(value: Element): boolean {
+  return getCurrentEditorOrFail().isInline(value)
+}
 
-          return [...levels, ...descendants]
-        }
-
-        case 'merge_node': {
-          const { path } = op
-          const ancestors = getAncestorPaths(path)
-          const previousPath = getPreviousPath(path)
-          return [...ancestors, previousPath]
-        }
-
-        case 'move_node': {
-          const { path, newPath } = op
-
-          if (isEqualPath(path, newPath)) {
-            return []
-          }
-
-          const oldAncestors: Path[] = []
-          const newAncestors: Path[] = []
-
-          for (const ancestor of getAncestorPaths(path)) {
-            const p = transformPath(ancestor, op)
-            oldAncestors.push(p!)
-          }
-
-          for (const ancestor of getAncestorPaths(newPath)) {
-            const p = transformPath(ancestor, op)
-            newAncestors.push(p!)
-          }
-
-          const newParent = newAncestors[newAncestors.length - 1]
-          const newIndex = newPath[newPath.length - 1]
-          const resultPath = newParent.concat(newIndex)
-
-          return [...oldAncestors, ...newAncestors, resultPath]
-        }
-
-        case 'remove_node': {
-          return [...getAncestorPaths(op.path)]
-        }
-
-        case 'split_node': {
-          const { path } = op
-          const levels = getLevelPaths(path)
-          const nextPath = getNextPath(path)
-          return [...levels, nextPath]
-        }
-
-        default: {
-          return []
-        }
-      }
-    },
-  } as EditorCore
+export function isVoid(value: Element): boolean {
+  return getCurrentEditorOrFail().isVoid(value)
 }

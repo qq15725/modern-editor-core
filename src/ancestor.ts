@@ -1,7 +1,7 @@
 import { isNodes } from './node'
 import { isPlainObject } from './utils'
 import type { Element } from './element'
-import type { EditorCore } from './types'
+import type { EditorCore } from './editor-core'
 
 export type Ancestor = EditorCore | Element
 

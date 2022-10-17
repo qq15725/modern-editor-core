@@ -1,12 +1,12 @@
 import { apply } from './apply'
+import { getCurrentEditorOrFail } from './editor-core'
 import { getAfterPoint, getBeforePoint, getPoint, isEqualPoint } from './point'
 import { getRange, isBackwardRange } from './range'
 import type { Location } from './location'
 import type { Range } from './range'
-import type { EditorCore } from './types'
 
-export function setSelection(editor: EditorCore, props: Partial<Range>): void {
-  const { selection } = editor
+export function setSelection(props: Partial<Range>): void {
+  const { selection } = getCurrentEditorOrFail()
   if (!selection) return
   const oldProps: Partial<Range> = {}
   const newProps: Partial<Range> = {}
@@ -26,7 +26,7 @@ export function setSelection(editor: EditorCore, props: Partial<Range>): void {
     }
   }
   if (Object.keys(oldProps).length > 0) {
-    apply(editor, {
+    apply({
       type: 'set_selection',
       properties: oldProps,
       newProperties: newProps,
@@ -34,12 +34,13 @@ export function setSelection(editor: EditorCore, props: Partial<Range>): void {
   }
 }
 
-export function select(editor: EditorCore, at: Location): void {
-  const range = getRange(editor, at)
+export function select(at: Location): void {
+  const editor = getCurrentEditorOrFail()
+  const range = getRange(at)
   if (editor.selection && range) {
-    setSelection(editor, range)
+    setSelection(range)
   } else {
-    apply(editor, {
+    apply({
       type: 'set_selection',
       properties: editor.selection,
       newProperties: range,
@@ -47,9 +48,10 @@ export function select(editor: EditorCore, at: Location): void {
   }
 }
 
-export function deselect(editor: EditorCore): void {
+export function deselect(): void {
+  const editor = getCurrentEditorOrFail()
   if (editor.selection) {
-    apply(editor, {
+    apply({
       type: 'set_selection',
       properties: editor.selection,
       newProperties: undefined,
@@ -64,7 +66,8 @@ export interface MoveOptions {
   edge?: 'anchor' | 'focus' | 'start' | 'end'
 }
 
-export function move(editor: EditorCore, options: MoveOptions = {}): void {
+export function move(options: MoveOptions = {}): void {
+  const editor = getCurrentEditorOrFail()
   if (!editor.selection) return
   const { distance = 1, unit = 'character', reverse = false } = options
   let { edge = null } = options
@@ -75,32 +78,32 @@ export function move(editor: EditorCore, options: MoveOptions = {}): void {
   const props: Partial<Range> = {}
   if (edge == null || edge === 'anchor') {
     const point = reverse
-      ? getBeforePoint(editor, anchor, opts)
-      : getAfterPoint(editor, anchor, opts)
+      ? getBeforePoint(anchor, opts)
+      : getAfterPoint(anchor, opts)
     if (point) props.anchor = point
   }
   if (edge == null || edge === 'focus') {
     const point = reverse
-      ? getBeforePoint(editor, focus, opts)
-      : getAfterPoint(editor, focus, opts)
+      ? getBeforePoint(focus, opts)
+      : getAfterPoint(focus, opts)
     if (point) props.focus = point
   }
-  setSelection(editor, props)
+  setSelection(props)
 }
 
 export interface CollapseOptions {
   edge?: 'anchor' | 'focus' | 'start' | 'end'
 }
 
-export function collapse(editor: EditorCore, options: CollapseOptions = {}) {
+export function collapse(options: CollapseOptions = {}) {
+  const editor = getCurrentEditorOrFail()
   if (!editor.selection) return
   const { edge = 'anchor' } = options
   select(
-    editor,
     edge === 'anchor'
       ? editor.selection.anchor
       : edge === 'focus'
         ? editor.selection.focus
-        : getPoint(editor, editor.selection, { edge }),
+        : getPoint(editor.selection, { edge }),
   )
 }

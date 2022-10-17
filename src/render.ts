@@ -10,7 +10,7 @@ import type { Node } from './node'
 import type { Path } from './path'
 import type { Range } from './range'
 import type { Element } from './element'
-import type { EditorCore } from './types'
+import type { EditorCore } from './editor-core'
 
 function hotkey(keydown: (key: string, event: KeyboardEvent) => void) {
   const keys = new Map<string, string>()
@@ -48,10 +48,10 @@ export function render(
       attrs['data-editor-node'] = 'text'
     } else {
       attrs['data-editor-node'] = 'element'
-      if (isInlineElement(editor, node)) {
+      if (isInlineElement(node)) {
         attrs['data-editor-inline'] = true
       }
-      if (isVoidElement(editor, node)) {
+      if (isVoidElement(node)) {
         attrs['data-editor-void'] = true
       }
     }
@@ -114,13 +114,13 @@ export function render(
       'onBeforeinput': (event: InputEvent) => {
         event.preventDefault()
         if (!(editor as any).isCompositing && event.data) {
-          insertText(editor, event.data)
+          insertText(event.data)
         }
       },
       'onCompositionstart': () => (editor as any).isCompositing = true,
       'onCompositionend': (event: CompositionEvent) => {
         event.preventDefault()
-        event.data && insertText(editor, event.data)
+        event.data && insertText(event.data)
         ;(editor as any).isCompositing = false
       },
       ...hotkey((key, event) => {
@@ -208,10 +208,10 @@ export function DOMSelectionChange(editor: EditorCore) {
     try {
       range = domRangeToRange(domSelection)
     } catch (err) {
-      range = getEndPoint(editor)
+      range = getEndPoint()
     }
-    select(editor, range)
+    select(range)
   } else {
-    deselect(editor)
+    deselect()
   }
 }

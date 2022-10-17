@@ -1,6 +1,7 @@
+import { getCurrentEditor } from './editor-core'
 import { isNodes } from './node'
+import { isText } from './text'
 import { isPlainObject } from './utils'
-import type { EditorCore } from './types'
 import type { Node } from './node'
 
 export interface Element {
@@ -14,14 +15,21 @@ export function isElement(value: any): value is Element {
     && !value.__editor__
 }
 
-export function isBlockElement(editor: EditorCore, value: any): value is Element {
-  return isElement(value) && editor.isBlock(value)
+export function isBlockElement(value: any): value is Element {
+  const editor = getCurrentEditor()
+  return isElement(value) && (!editor || editor.isBlock(value))
 }
 
-export function isInlineElement(editor: EditorCore, value: any): value is Element {
-  return isElement(value) && editor.isInline(value)
+export function isInlineElement(value: any): value is Element {
+  const editor = getCurrentEditor()
+  return isElement(value) && (!editor || editor.isInline(value))
 }
 
-export function isVoidElement(editor: EditorCore, value: any): value is Element {
-  return isElement(value) && editor.isVoid(value)
+export function isVoidElement(value: any): value is Element {
+  const editor = getCurrentEditor()
+  return isElement(value) && (!editor || editor.isVoid(value))
+}
+
+export function hasInlines(element: Element): boolean {
+  return element.children.some(n => isText(n) || isInlineElement(n))
 }

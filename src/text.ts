@@ -2,8 +2,6 @@ import { getNode, getNodeEntries, getNodes } from './node'
 import { getPath, isEqualPath } from './path'
 import { getRange, getRangeEdgePoints } from './range'
 import { isDeepEqual, isPlainObject } from './utils'
-import type { EditorCore } from './types'
-import type { Ancestor } from './ancestor'
 import type { NodeEntry } from './node'
 import type { Path } from './path'
 import type { Location } from './location'
@@ -20,13 +18,13 @@ export function isText(value: any): value is Text {
     && typeof value.text === 'string'
 }
 
-export function getText(root: Ancestor, path: Path): Text | null {
-  const text = getNode(root, path)
+export function getText(path: Path): Text | null {
+  const text = getNode(path)
   return isText(text) ? text : null
 }
 
-export function getTextOrFail(root: Ancestor, path: Path): Text {
-  const text = getText(root, path)
+export function getTextOrFail(path: Path): Text {
+  const text = getText(path)
   if (!text) throw new Error(`Cannot get the leaf node at path [${ path }] because it refers to a non-leaf node: ${ JSON.stringify(text) }`)
   return text
 }
@@ -36,14 +34,14 @@ export interface TextEntryOptions {
   edge?: 'start' | 'end'
 }
 
-export function getTextEntry(root: Ancestor, at: Location, options?: TextEntryOptions): TextEntry | null {
+export function getTextEntry(at: Location, options?: TextEntryOptions): TextEntry | null {
   const path = getPath(at, options)
-  const node = getText(root, path)
+  const node = getText(path)
   return node ? [node, path] : null
 }
 
-export function getTextEntryOrFail(root: Ancestor, at: Location, options?: TextEntryOptions): TextEntry {
-  const entry = getTextEntry(root, at, options)
+export function getTextEntryOrFail(at: Location, options?: TextEntryOptions): TextEntry {
+  const entry = getTextEntry(at, options)
   if (!entry) throw new Error(`Cannot get the leaf node at location [${ at }] because it refers to a non-leaf node: ${ JSON.stringify(entry) }`)
   return entry
 }
@@ -55,8 +53,10 @@ export interface TextEntriesOptions {
   pass?: (node: NodeEntry) => boolean
 }
 
-export function *getTextEntries(root: Ancestor, options?: TextEntriesOptions): Generator<TextEntry, void, undefined> {
-  for (const [node, path] of getNodes(root, options)) {
+export function *getTextEntries(
+  options?: TextEntriesOptions,
+): Generator<TextEntry, void, undefined> {
+  for (const [node, path] of getNodes(options)) {
     if (isText(node)) yield [node, path]
   }
 }
@@ -65,12 +65,15 @@ export interface TextContentOptions {
   voids?: boolean
 }
 
-export function getTextContent(editor: EditorCore, at: Location, options?: TextContentOptions): string {
+export function getTextContent(
+  at: Location,
+  options?: TextContentOptions,
+): string {
   const { voids = false } = options ?? {}
-  const range = getRange(editor, at)
+  const range = getRange(at)
   const [start, end] = getRangeEdgePoints(range)
   let text = ''
-  for (const [node, path] of getNodeEntries<Text>(editor, editor, {
+  for (const [node, path] of getNodeEntries<Text>({
     at: range,
     match: node => isText(node),
     voids,

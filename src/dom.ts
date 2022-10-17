@@ -1,3 +1,5 @@
+import { getAboveVoidNodeEntry } from './node'
+import { isBackwardRange, isCollapsedRange } from './range'
 import DOMNode = globalThis.Node
 import DOMComment = globalThis.Comment
 import DOMElement = globalThis.Element
@@ -5,10 +7,9 @@ import DOMText = globalThis.Text
 import DOMRange = globalThis.Range
 import DOMSelection = globalThis.Selection
 import DOMStaticRange = globalThis.StaticRange
-import { isBackwardRange, isCollapsedRange } from './range'
 import type { Point } from './point'
 import type { Range } from './range'
-import type { EditorCore } from './types'
+import type { EditorCore } from './editor-core'
 
 export type DOMPoint = [DOMNode, number]
 
@@ -147,7 +148,7 @@ export function domRangeToRange(domRange: DOMRange | DOMStaticRange | DOMSelecti
 export function pointToDomPoint(editor: EditorCore, point: Point): DOMPoint {
   const el = document.querySelector(`[data-editor-path="${ point.path.join('-') }"]`)
   let domPoint: DOMPoint | undefined
-  if (editor.void({ at: point })) point = { path: point.path, offset: 0 }
+  if (getAboveVoidNodeEntry({ at: point })) point = { path: point.path, offset: 0 }
   const texts = Array.from<HTMLElement>(el?.querySelectorAll('[data-editor-string], [data-editor-zero-width]') ?? [])
   let start = 0
   for (const text of texts) {
