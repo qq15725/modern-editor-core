@@ -1,7 +1,7 @@
 {
   "name": "modern-editor-core",
   "type": "module",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "packageManager": "pnpm@7.9.0",
   "description": "A modern rich text editor core",
   "author": "wxm",
