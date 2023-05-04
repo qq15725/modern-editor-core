@@ -139,7 +139,6 @@ export function render(
               editor.insertBreak()
               break
             case 'Backspace':
-              console.log('Backspace')
               event.preventDefault()
               if (editor.selection && isExpandedRange(editor.selection)) {
                 deleteFragment(editor, { direction: 'backward' })
