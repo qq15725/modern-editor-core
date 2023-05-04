@@ -34,9 +34,9 @@ export class EditorCore {
 
   public run<T>(fn: () => T): T | undefined {
     const currentEditor = activeEditor
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    activeEditor = this
     try {
-      // eslint-disable-next-line @typescript-eslint/no-this-alias
-      activeEditor = this
       return fn()
     } finally {
       activeEditor = currentEditor

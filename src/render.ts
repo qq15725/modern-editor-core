@@ -113,49 +113,56 @@ export function render(
       },
       'onBeforeinput': (event: InputEvent) => {
         event.preventDefault()
-        if (!(editor as any).isCompositing && event.data) {
-          insertText(event.data)
-        }
+        editor.run(() => {
+          if (!(editor as any).isCompositing && event.data) {
+            insertText(event.data)
+          }
+        })
       },
       'onCompositionstart': () => (editor as any).isCompositing = true,
       'onCompositionend': (event: CompositionEvent) => {
         event.preventDefault()
-        event.data && insertText(event.data)
-        ;(editor as any).isCompositing = false
+        editor.run(() => {
+          event.data && insertText(event.data)
+          ;(editor as any).isCompositing = false
+        })
       },
       ...hotkey((key, event) => {
-        switch (key) {
-          case 'Shift+Enter':
-            event.preventDefault()
-            editor.insertSoftBreak()
-            break
-          case 'Enter':
-            event.preventDefault()
-            editor.insertBreak()
-            break
-          case 'Backspace':
-            event.preventDefault()
-            if (editor.selection && isExpandedRange(editor.selection)) {
-              deleteFragment(editor, { direction: 'backward' })
-            } else {
-              deleteBackward(editor)
-            }
-            break
-          case 'Delete':
-            event.preventDefault()
-            if (editor.selection && isExpandedRange(editor.selection)) {
-              deleteFragment(editor, { direction: 'forward' })
-            } else {
-              deleteForward(editor)
-            }
-            break
-          case 'mod+z':
-            event.preventDefault()
-            if ((editor as any).undo) {
-              (editor as any).undo()
-            }
-            break
-        }
+        editor.run(() => {
+          switch (key) {
+            case 'Shift+Enter':
+              event.preventDefault()
+              editor.insertSoftBreak()
+              break
+            case 'Enter':
+              event.preventDefault()
+              editor.insertBreak()
+              break
+            case 'Backspace':
+              console.log('Backspace')
+              event.preventDefault()
+              if (editor.selection && isExpandedRange(editor.selection)) {
+                deleteFragment(editor, { direction: 'backward' })
+              } else {
+                deleteBackward(editor)
+              }
+              break
+            case 'Delete':
+              event.preventDefault()
+              if (editor.selection && isExpandedRange(editor.selection)) {
+                deleteFragment(editor, { direction: 'forward' })
+              } else {
+                deleteForward(editor)
+              }
+              break
+            case 'mod+z':
+              event.preventDefault()
+              if ((editor as any).undo) {
+                (editor as any).undo()
+              }
+              break
+          }
+        })
       }),
     },
     isEmpty

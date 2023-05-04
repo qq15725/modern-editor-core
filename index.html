@@ -3,17 +3,18 @@
 <head>
   <meta charset="utf-8">
   <title>Playground</title>
+  <script src="https://unpkg.com/vue@3"></script>
 </head>
 <body>
 <div id="app"></div>
 
 <script type="module">
-  import { createApp, h, nextTick, ref } from 'https://cdn.bootcdn.net/ajax/libs/vue/3.2.39/vue.esm-browser.js'
-  import { DOMSelectionChange, createEditorCore, render, selectionChange } from './src'
+  const { createApp, h, nextTick, ref } = window.Vue
+  import { DOMSelectionChange, EditorCore, render, selectionChange } from './src'
 
   createApp({
     setup() {
-      const editor = createEditorCore([
+      const editor = new EditorCore([
         {
           children: [
             { text: '' },
@@ -27,20 +28,22 @@
       editor.on('change', async () => {
         nodes.value = [...editor.children]
         await nextTick()
-        selectionChange(editor)
+        editor.run(() => selectionChange(editor))
         hasSelection.value = Boolean(editor.selection)
       })
 
-      document.addEventListener('selectionchange', () => DOMSelectionChange(editor))
+      document.addEventListener('selectionchange', () => {
+        editor.run(() => DOMSelectionChange(editor))
+      })
 
       return () => {
         return [
-          render(
+          editor.run(() => render(
             editor,
             { placeholder: '请输入', style: { width: '300px', minHeight: '100px' } },
             hasSelection.value,
             h,
-          ),
+          )),
           h('pre', JSON.stringify(nodes.value, null, 2)),
         ]
       }

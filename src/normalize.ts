@@ -30,7 +30,7 @@ export function normalizeNode(entry: NodeEntry) {
       || isInlineElement(node.children[0]))
   let n = 0
   for (let i = 0; i < node.children.length; i++, n++) {
-    const currentNode = getNodeOrFail(editor, path)
+    const currentNode = getNodeOrFail(path)
     if (isText(currentNode)) continue
     const child = node.children[i] as Descendant
     const prev = currentNode.children[n - 1] as Descendant
@@ -81,14 +81,14 @@ export function normalize(options: { force?: boolean } = {}): void {
     return path
   }
   if (force) {
-    editor.dirtyPaths = Array.from(getNodeEntries(editor), ([, p]) => p)
+    editor.dirtyPaths = Array.from(getNodeEntries(), ([, p]) => p)
     editor.dirtyPathKeys = new Set(editor.dirtyPaths.map(p => p.join(',')))
   }
   if (editor.dirtyPaths.length === 0) return
   withoutNormalizing(() => {
     for (const dirtyPath of editor.dirtyPaths) {
-      if (hasNode(editor, dirtyPath)) {
-        const entry = getNodeEntryOrFail(editor, dirtyPath)
+      if (hasNode(dirtyPath)) {
+        const entry = getNodeEntryOrFail(dirtyPath)
         const node = entry[0]
         if (isElement(node) && node.children.length === 0) normalizeNode(entry)
       }
@@ -100,8 +100,8 @@ export function normalize(options: { force?: boolean } = {}): void {
         throw new Error(`Could not completely normalize the editor after ${ max } iterations! This is usually due to incorrect normalization logic that leaves a node in an invalid state.`)
       }
       const dirtyPath = popDirtyPath()
-      if (hasNode(editor, dirtyPath)) {
-        normalizeNode(getNodeEntryOrFail(editor, dirtyPath))
+      if (hasNode(dirtyPath)) {
+        normalizeNode(getNodeEntryOrFail(dirtyPath))
       }
       m++
     }
